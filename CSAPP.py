@@ -7,9 +7,100 @@ import pandas as pd
 from io import BytesIO
 from fuzzywuzzy import fuzz
 
+# -------------------- UI Setup 
+st.set_page_config(page_title=" PDF Merger CS", layout="centered")
+st.title("📓 PDF Merger CS")
 
+excel_file = st.file_uploader("📤 Upload Excel File", type=["xls", "xlsx"], key="excel")
+pdf_file = st.file_uploader("📄 Upload PDF File", type=["pdf"], key="pdf")
 
+# -------------------- Pattern 
+style_pattern = re.compile(r"^\d{8}$")
 
+# -------------------- Excel Reader 
+def extract_styles_from_excel(file) -> list:
+    try:
+        if file.name.endswith(".xls"):
+            df = pd.read_excel(file, sheet_name=0, header=None, engine="xlrd")
+            for i in range(23, len(df)):
+                val = df.iloc[i, 1]
+                val_str = str(val).strip() if val is not None else ""
+                if not val_str:
+                    break
+                if style_pattern.match(val_str):
+                    return [val_str]  # ✅ Only return the first match
+                else:
+                    break
+        else:
+            wb = openpyxl.load_workbook(file, data_only=True)
+            ws = wb.active
+            row = 24
+            while True:
+                val = ws[f"B{row}"].value
+                val_str = str(val).strip() if val is not None else ""
+                if not val_str:
+                    break
+                if style_pattern.match(val_str):
+                    return [val_str]
+                else:
+                    break
+                row += 1
+        return []
+    except Exception as e:
+        st.error(f"Error reading Excel file: {e}")
+        return []
+
+# -------------------- Style to PDF 
+def create_styles_pdf(styles: list) -> BytesIO:
+    doc = fitz.open()
+    page = doc.new_page()
+    title = "Extracted Style Numbers:\n\n"
+    content = title + "\n".join(styles) if styles else "No style numbers found."
+    rect = fitz.Rect(50, 50, 550, 800)
+    page.insert_textbox(rect, content, fontsize=12, fontname="helv", align=0)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+# -------------------- Merge PDF 
+def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
+    pdf_out = fitz.open()
+    pdf_styles = fitz.open(stream=styles_pdf.read(), filetype="pdf")
+    pdf_orig = fitz.open(stream=original_pdf.read(), filetype="pdf")
+    
+
+    pdf_out.insert_pdf(pdf_styles)
+    pdf_out.insert_pdf(pdf_orig)
+    
+
+    output = BytesIO()
+    pdf_out.save(output)
+    output.seek(0)
+    return output
+
+# -------------------- Main Logic 
+if excel_file and pdf_file:
+    styles = extract_styles_from_excel(excel_file)
+
+    if styles:
+        st.subheader("✅ Extracted Style Numbers")
+        st.dataframe(pd.DataFrame(styles, columns=["Style"]))
+        styles_pdf = create_styles_pdf(styles)
+        final_pdf = merge_pdfs(pdf_file, styles_pdf)
+
+        st.download_button(
+            label="📄 Download Final PDF with Styles",
+            data=final_pdf,
+            file_name="Merged-PO.pdf",
+            mime="application/pdf"
+        )
+    else:
+        st.warning("No valid 8-digit style numbers found in the Excel file.")
+elif excel_file or pdf_file:
+    st.info("Please upload both an Excel and a PDF file to proceed.")
+# -------------------- End of that code.................
 
 
 
@@ -55,7 +146,6 @@ def extract_wo_fields(pdf_file):
         "product_codes": list(set(codes)),
         "po_numbers": po_numbers
     }
-
 
 
 def extract_po_fields(pdf_file):
@@ -158,7 +248,6 @@ def reorder_wo_by_size(wo_items):
     return sorted(wo_items, key=get_order)
 
 
-
 def reorder_po_by_size(po_details):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
    
@@ -169,90 +258,144 @@ def reorder_po_by_size(po_details):
     return sorted(po_details, key=get_order)
 
 
+def extract_style_numbers_from_po_first_page(pdf_file):
+    # Use PyMuPDF to read the first page for style numbers
+    with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
+        first_page = doc[0].get_text()
+        match = re.search(r"Extracted Style Numbers:\s*(.*)", first_page, re.IGNORECASE)
+        if match:
+            styles_text = match.group(1).strip()
+            # Split by comma or newlines
+            styles = re.split(r"[,\n]", styles_text)
+            return [s.strip() for s in styles if s.strip()]
+    return []
+
+# -------------------- UPDATED PO DETAILS EXTRACTION FUNCTION --------------------
 def extract_po_details(pdf_file):
+    """
+    Enhanced function to handle multiple PO formats:
+    1. Original format with Sup Ref codes and item tables
+    2. New format with TAG codes and Color/Size/Destination lines
+    """
+    pdf_file.seek(0)
     extracted_styles = extract_style_numbers_from_po_first_page(pdf_file)
-    use_extracted_styles = len(extracted_styles) > 0
+    repeated_style = extracted_styles[0] if extracted_styles else ""
 
-
+    pdf_file.seek(0)
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
 
+    # Try to detect which format this is
+    has_tag_format = "TAG.PRC.TKT_" in text and "Color/Size/Destination :" in text
+    has_original_format = any("Colour/Size/Destination:" in line for line in lines) or re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
 
-    sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
-    sup_ref_code = sup_ref_match.group(1).strip().upper() if sup_ref_match else ""
-
-
-    tag_code = ""
-    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-    for i, line in enumerate(lines):
-        if "Item Description" in line:
-            if i + 2 < len(lines):
-                second_line = lines[i + 2]
-                match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", second_line)
-                if match:
-                    tag_code = match.group(1).strip().upper()
-            break
-
-
-    product_code_used = sup_ref_code if sup_ref_code else tag_code
     po_items = []
-    style_idx = 0
 
+    if has_tag_format and not has_original_format:
+        # NEW FORMAT HANDLING - TAG format with Color/Size/Destination
+        print("Detected TAG format PO")
+        
+        # Extract product code from TAG format
+        tag_match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", text)
+        product_code_used = tag_match.group(1).strip().upper() if tag_match else ""
+        
+        # Process each line for item extraction
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            
+            # Look for item number pattern at start of line: "1 TAG.PRC.TKT_..."
+            item_match = re.match(r'^(\d+)\s+TAG\.PRC\.TKT_.*?(\d+\.\d+)\s+PCS', line)
+            if item_match:
+                item_no = item_match.group(1)
+                quantity = int(float(item_match.group(2)))
+                
+                # Look for Color/Size/Destination in next few lines
+                colour = size = ""
+                for j in range(i + 1, min(i + 5, len(lines))):
+                    next_line = lines[j]
+                    if "Color/Size/Destination :" in next_line:
+                        # Extract color and size from format: "Color/Size/Destination : 34Y5 45K / L / X"
+                        cs_part = next_line.split(":", 1)[1].strip()
+                        cs_parts = [part.strip() for part in cs_part.split(" / ") if part.strip()]
+                        
+                        if len(cs_parts) >= 2:
+                            # First part contains color code(s)
+                            colour_part = cs_parts[0].strip()
+                            # Extract the main color code (first part before space)
+                            colour = colour_part.split()[0] if colour_part else ""
+                            
+                            # Second part is size
+                            size = cs_parts[1].strip().upper()
+                        break
+                
+                po_items.append({
+                    "Item_Number": item_no,
+                    "Item_Code": f"TAG_{product_code_used}",  # Create item code from TAG
+                    "Quantity": quantity,
+                    "Colour_Code": colour.upper() if colour else "",
+                    "Size": size,
+                    "Style 2": repeated_style,
+                    "Product_Code": product_code_used,
+                })
+            i += 1
 
-    for i, line in enumerate(lines):
-        item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+(\d+\.\d+)\s+PCS', line)
-        if item_match:
-            item_no, item_code, _, qty_str = item_match.groups()
-            quantity = int(float(qty_str))
-            colour = size = ""
-            style_2 = ""
+    else:
+        # ORIGINAL FORMAT HANDLING (fallback to original logic)
+        print("Detected original format PO or fallback")
+        
+        # Extract product codes (original logic)
+        sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
+        sup_ref_code = sup_ref_match.group(1).strip().upper() if sup_ref_match else ""
 
+        tag_code = ""
+        for i, line in enumerate(lines):
+            if "Item Description" in line:
+                if i + 2 < len(lines):
+                    second_line = lines[i + 2]
+                    match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", second_line)
+                    if match:
+                        tag_code = match.group(1).strip().upper()
+                break
 
-            # If extracted styles exist, assign sequentially
-            if use_extracted_styles and style_idx < len(extracted_styles):
-                style_2 = extracted_styles[style_idx]
-                style_idx += 1
+        product_code_used = sup_ref_code if sup_ref_code else tag_code
 
+        # Extract items (original logic)
+        for i, line in enumerate(lines):
+            item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+(\d+\.\d+)\s+PCS', line)
+            if item_match:
+                item_no, item_code, _, qty_str = item_match.groups()
+                quantity = int(float(qty_str))
+                colour = size = ""
 
-            # Only run old logic to find style_2 if no extracted styles
-            if not style_2:
                 for j in range(i + 1, min(i + 10, len(lines))):
                     ln = lines[j]
-                    match = re.search(r"(\d{6,})\s*$", ln)
-                    if match:
-                        style_2 = match.group(1)
-                        break
+                    if not colour and "Colour/Size/Destination:" in ln:
+                        cs = ln.split(":", 1)[1].strip()
+                        size_keywords = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "P", "G"]
+                        parts = [p.strip() for p in cs.split("/") if p.strip()]
+                        if parts:
+                            size_part = parts[0].split("|")[0].strip().upper()
+                            if size_part in size_keywords:
+                                size = size_part
+                                if len(parts) > 1:
+                                    colour = parts[1].strip().split()[0].strip().upper()
+                            else:
+                                colour = re.match(r'^(\S+)', cs).group(1) if re.match(r'^(\S+)', cs) else ""
+                                size_match = re.search(r'/\s*([^/]+)\s*/', cs)
+                                if size_match:
+                                    size = size_match.group(1).strip()
 
-
-            for j in range(i + 1, min(i + 10, len(lines))):
-                ln = lines[j]
-                if not colour and "Colour/Size/Destination:" in ln:
-                    cs = ln.split(":", 1)[1].strip()
-                    size_keywords = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "P", "G"]
-                    parts = [p.strip() for p in cs.split("/") if p.strip()]
-                    if parts:
-                        size_part = parts[0].split("|")[0].strip().upper()
-                        if size_part in size_keywords:
-                            size = size_part
-                            if len(parts) > 1:
-                                colour = parts[1].strip().split()[0].strip().upper()
-                        else:
-                            colour = re.match(r'^(\S+)', cs).group(1) if re.match(r'^(\S+)', cs) else ""
-                            size_match = re.search(r'/\s*([^/]+)\s*/', cs)
-                            if size_match:
-                                size = size_match.group(1).strip()
-
-
-            po_items.append({
-                "Item_Number": item_no,
-                "Item_Code": item_code,
-                "Quantity": quantity,
-                "Colour_Code": (colour or "").strip().upper(),
-                "Size": (size or "").strip().upper(),
-                "Style 2": style_2,
-                "Product_Code": product_code_used,
-            })
-
+                po_items.append({
+                    "Item_Number": item_no,
+                    "Item_Code": item_code,
+                    "Quantity": quantity,
+                    "Colour_Code": (colour or "").strip().upper(),
+                    "Size": (size or "").strip().upper(),
+                    "Style 2": repeated_style,
+                    "Product_Code": product_code_used,
+                })
 
     return po_items
 
@@ -307,103 +450,117 @@ def extract_wo_items_table(pdf_file, product_codes=None):
     return items
 
 
-
 def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
     matched, mismatched = [], []
     used = set()
+
     for wo in wo_items:
         wq = wo["Quantity"]
         ws = wo.get("Size 1", "").strip().upper()
         wc = wo.get("WO Colour Code", "").strip().upper()
         wstyle = wo.get("Style", "").strip()
 
+        full_match_found = False
+        partial_match_idx = None
+        partial_match_score = -1
 
-        found_exact = False
         for idx, po in enumerate(po_details):
             if idx in used:
                 continue
+
             pq = po["Quantity"]
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
 
-
+            # Full Match Check
             if wq == pq and ws == ps and wc == pc and wstyle == pstyle:
                 matched.append({
-                    **{"Style": wstyle, "WO Size": ws, "PO Size": ps, "WO Colour Code": wc, "PO Colour Code": pc,
-                       "WO Qty": wq, "PO Qty": pq, "Style 2": pstyle},
-                    **{"Qty Match": "😀 Yes", "Size Match": "😀 Yes", "Colour Match": "😀 Yes", "Style Match": "😀 Yes",
-                       "Diff": 0, "Status": "✅ Full Match", "PO Item Code": po.get("Item_Code", "")}
+                    "Style": wstyle, "Style 2": pstyle,
+                    "WO Size": ws, "PO Size": ps,
+                    "WO Colour Code": wc, "PO Colour Code": pc,
+                    "WO Qty": wq, "PO Qty": pq,
+                    "Qty Match": "👍 Yes", "Size Match": "👍 Yes",
+                    "Colour Match": "👍 Yes", "Style Match": "👍 Yes",
+                    "Diff": 0,
+                    "Status": "🟩 Full Match",
+                    "PO Item Code": po.get("Item_Code", "")
                 })
                 used.add(idx)
-                found_exact = True
+                full_match_found = True
                 break
+            else:
+                # Score partial match
+                score = 0
+                if abs(pq - wq) <= tolerance:
+                    score += 1
+                if ws == ps:
+                    score += 1
+                if wc == pc:
+                    score += 1
+                if wstyle == pstyle:
+                    score += 1
 
+                if score > partial_match_score:
+                    partial_match_score = score
+                    partial_match_idx = idx
 
-        if found_exact:
+        if full_match_found:
             continue
 
-
-        best_idx, best_diff = None, float("inf")
-        for idx, po in enumerate(po_details):
-            if idx in used:
-                continue
-            diff = abs(po["Quantity"] - wq)
-            if diff <= tolerance and diff < best_diff:
-                best_idx = idx
-                best_diff = diff
-
-
-        if best_idx is not None:
-            po = po_details[best_idx]
-            used.add(best_idx)
-            qty_match = "😀 Yes" if wq == pq else "❌ No"
-            size_match = "😀 Yes" if ws == ps else "❌ No"
-            colour_match = "😀 Yes" if wc == pc else "❌ No"
-            style_match = "😀 Yes" if wstyle == pstyle else "❌ No"
-
-
+        if partial_match_idx is not None:
+            po = po_details[partial_match_idx]
             pq = po["Quantity"]
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
 
-
-            
-
-
-            full = all([qty_match == "Yes", size_match == "Yes", colour_match == "Yes", style_match == "Yes"])
-
+            qty_match = "👍 Yes" if abs(pq - wq) <= tolerance else "❌ No"
+            size_match = "👍 Yes" if ws == ps else "❌ No"
+            colour_match = "👍 Yes" if wc == pc else "❌ No"
+            style_match = "👍 Yes" if wstyle == pstyle else "❌ No"
 
             matched.append({
-                **{"Style": wstyle, "WO Size": ws, "PO Size": ps, "WO Colour Code": wc, "PO Colour Code": pc,
-                   "WO Qty": wq, "PO Qty": pq, "Style 2": pstyle},
-                **{"Qty Match": qty_match, "Size Match": size_match, "Colour Match": colour_match, "Style Match": style_match,
-                   "Diff": pq - wq,
-                   "Status": "✅ Full Match" if full else "❌ Partial Match",
-                   "PO Item Code": po.get("Item_Code", "")}
+                "Style": wstyle, "Style 2": pstyle,
+                "WO Size": ws, "PO Size": ps,
+                "WO Colour Code": wc, "PO Colour Code": pc,
+                "WO Qty": wq, "PO Qty": pq,
+                "Qty Match": qty_match, "Size Match": size_match,
+                "Colour Match": colour_match, "Style Match": style_match,
+                "Diff": pq - wq,
+                "Status": "🟨 NO Match",
+                "PO Item Code": po.get("Item_Code", "")
             })
+            used.add(partial_match_idx)
         else:
+            # No PO match found for this WO item
             mismatched.append({
-                **{"Style": wstyle, "WO Size": ws, "PO Size": "", "WO Colour Code": wc, "PO Colour Code": "",
-                   "WO Qty": wq, "PO Qty": None, "Style 2": ""},
-                **{"Qty Match": "No", "Size Match": "No", "Colour Match": "No", "Style Match": "No",
-                   "Diff": "", "Status": "❌ No PO Qty", "PO Item Code": ""}
+                "Style": wstyle, "Style 2": "",
+                "WO Size": ws, "PO Size": "",
+                "WO Colour Code": wc, "PO Colour Code": "",
+                "WO Qty": wq, "PO Qty": None,
+                "Qty Match": "❌ No", "Size Match": "❌ No",
+                "Colour Match": "❌ No", "Style Match": "❌ No",
+                "Diff": "", "Status": "❌ No PO Match", "PO Item Code": ""
             })
 
-
+    # Remaining unmatched PO items
     for idx, po in enumerate(po_details):
         if idx not in used:
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
-            mismatched.append({
-                **{"Style": "N/A", "WO Size": "N/A", "PO Size": ps, "WO Colour Code": "N/A", "PO Colour Code": pc,
-                   "WO Qty": None, "PO Qty": po["Quantity"], "Style 2": pstyle},
-                **{"Qty Match": "No", "Size Match": "No", "Colour Match": "No", "Style Match": "No",
-                   "Diff": "", "Status": "❌ Extra PO Item", "PO Item Code": po.get("Item_Code", "")}
-            })
+            pq = po["Quantity"]
 
+            mismatched.append({
+                "Style": "", "Style 2": pstyle,
+                "WO Size": "", "PO Size": ps,
+                "WO Colour Code": "", "PO Colour Code": pc,
+                "WO Qty": None, "PO Qty": pq,
+                "Qty Match": "❌ No", "Size Match": "❌ No",
+                "Colour Match": "❌ No", "Style Match": "❌ No",
+                "Diff": "", "Status": "❌ Extra PO Item", "PO Item Code": po.get("Item_Code", "")
+            })
 
     return matched, mismatched
 
@@ -458,7 +615,6 @@ if wo_file and po_file:
         wo_items = extract_wo_items_table(wo_file, wo["product_codes"])
         wo_items = reorder_wo_by_size(wo_items)  # <-- reorder WO items here
 
-        po_details = extract_po_details(po_file)
         po_details_raw = extract_po_details(po_file)
         po_details = reorder_po_by_size(po_details_raw)
         addr_res = compare_addresses(wo, po)
@@ -469,79 +625,66 @@ if wo_file and po_file:
         else:
             matched, mismatched = [], []
 
-
     st.success("✅ Comparison Completed")
 
-
     st.markdown("---")
-    st.subheader("📍 Address Comparison")
+    st.subheader("🧭 Address Comparison")
     st.dataframe(pd.DataFrame([addr_res]), use_container_width=True)
-
 
     st.subheader("🔢 Product Code Comparison")
 
-
-    po_all_codes = []
-    for po in po_details:
-        code = po.get("Product_Code", "").strip().upper()
-        if code:
-            po_all_codes.append(code)
-   
-    wo_all_codes = []
-    for wo in wo_items:
-        code = wo.get("WO Product Code", "").strip().upper()
-        if code:
-            wo_all_codes.append(code)
-
+    po_all_codes = [po.get("Product_Code", "").strip().upper() for po in po_details if po.get("Product_Code")]
+    wo_all_codes = [wo.get("WO Product Code", "").strip().upper() for wo in wo_items if wo.get("WO Product Code")]
 
     comparison_rows = []
     max_len = max(len(po_all_codes), len(wo_all_codes)) if po_all_codes or wo_all_codes else 0
-   
+
     for i in range(max_len):
         po_code = po_all_codes[i] if i < len(po_all_codes) else ""
         wo_code = wo_all_codes[i] if i < len(wo_all_codes) else ""
-       
+
         if po_code and wo_code and po_code == wo_code:
             status = "✅ Exact Match"
         elif po_code and wo_code and "/" in wo_code:
             wo_parts = [part.strip().upper() for part in wo_code.split("/")]
-            if po_code in wo_parts:
-                status = "✅ Exact Match"
-            else:
-                status = "❌ No Match"
+            status = "✅ Exact Match" if po_code in wo_parts else "❌ No Match"
         elif po_code and wo_code and "/" in po_code:
             po_parts = [part.strip().upper() for part in po_code.split("/")]
-            if wo_code in po_parts:
-                status = "✅ Partial Match (PO contains WO code)"
-            else:
-                status = "❌ No Match"
+            status = "✅ Partial Match (PO contains WO code)" if wo_code in po_parts else "❌ No Match"
         elif po_code and wo_code:
             status = "❌ No Match"
         else:
             status = "⚪ Empty"
-       
+
         comparison_rows.append({
             "PO Product Code": po_code,
             "WO Product Code": wo_code,
             "Match Status": status
         })
 
-
     code_table_df = pd.DataFrame(comparison_rows)
-
-
     st.dataframe(code_table_df, use_container_width=True)
 
-
-    st.subheader("✅ Matched WO/PO Items")
+    st.subheader("🌇 Matched WO/PO Items")
     if matched:
         st.dataframe(pd.DataFrame(matched), use_container_width=True)
     else:
         st.info("No matched items found or matching method not selected.")
 
+    # --- New logic: show alert if all checks are good ---
+
+    address_ok = addr_res.get("Status", "") == "✅ Match"
+    codes_ok = (not code_table_df.empty) and all(code_table_df["Match Status"].str.contains("✅"))
+    matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
+    matched_ok = (not matched_df.empty) and all(matched_df["Status"].str.contains("Full Match"))
+    mismatched_empty = len(mismatched) == 0
+
+    if address_ok and codes_ok and matched_ok and mismatched_empty:
+        st.success("🎉 All checking data are matched successfully!")
+    else:
+        st.warning("⚠️ Some mismatches detected. Please review the details above.")
 
     
-
     # Safe definitions to avoid NameError
     matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
     code_table_df = pd.DataFrame(comparison_rows) if comparison_rows else pd.DataFrame()
@@ -549,19 +692,16 @@ if wo_file and po_file:
 
     # Checks
     codes_ok = not code_table_df.empty and all(code_table_df["Match Status"] == "✅ Exact Match")
-    matched_ok = not matched_df.empty and all(matched_df["Status"] == "✅ Full Match")
+    matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
 
     if address_ok and codes_ok and matched_ok:
         st.success("🎉 All data in Address, Product Codes, and Matched Items are fully matched!")
-
-
-
 
     st.subheader("❗ Mismatched or Extra Items")
     if mismatched:
         st.dataframe(pd.DataFrame(mismatched), use_container_width=True)
     else:
-        st.success("An error has been detected.")
+        st.success("No mismatched items found.")
 
 
     st.subheader("🧾 Work Order (WO) Items Table")
