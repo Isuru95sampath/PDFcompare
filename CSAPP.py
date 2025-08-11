@@ -7,17 +7,254 @@ import pandas as pd
 from io import BytesIO
 from fuzzywuzzy import fuzz
 
-# -------------------- UI Setup 
-st.set_page_config(page_title=" PDF Merger CS", layout="centered")
-st.title("📓 PDF Merger CS")
+# -------------------- UI Configuration --------------------
+st.set_page_config(
+    page_title="Customer Care System - Razz Solutions",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-excel_file = st.file_uploader("📤 Upload Excel File", type=["xls", "xlsx"], key="excel")
-pdf_file = st.file_uploader("📄 Upload PDF File", type=["pdf"], key="pdf")
+# -------------------- Custom CSS --------------------
+st.markdown("""
+<style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Global Styles */
+    .main {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Header Styling */
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    
+    .main-title {
+        color: white;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .main-subtitle {
+        color: rgba(255,255,255,0.9);
+        font-size: 1.2rem;
+        font-weight: 400;
+        margin: 0;
+    }
+    
+    /* Status Cards */
+    .status-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        border-left: 4px solid #4CAF50;
+        margin: 1rem 0;
+    }
+    
+    .status-card.warning {
+        border-left-color: #FF9800;
+    }
+    
+    .status-card.error {
+        border-left-color: #f44336;
+    }
+    
+    /* Section Headers */
+    .section-header {
+        background: linear-gradient(90deg, #f8f9fa 0%, #e9ecef 100%);
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        border-left: 5px solid #007bff;
+        margin: 1.5rem 0 1rem 0;
+    }
+    
+    .section-title {
+        color: #2c3e50;
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    /* Upload Area Styling */
+    .upload-container {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border: 2px dashed #007bff;
+        border-radius: 15px;
+        padding: 2rem;
+        text-align: center;
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-container:hover {
+        border-color: #0056b3;
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    }
+    
+    /* Metrics Cards */
+    .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        border-top: 4px solid #007bff;
+        transition: transform 0.3s ease;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-5px);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 0.5rem;
+    }
+    
+    .metric-label {
+        color: #6c757d;
+        font-weight: 500;
+        text-transform: uppercase;
+        font-size: 0.9rem;
+        letter-spacing: 1px;
+    }
+    
+    /* Success/Warning/Error Messages */
+    .alert-success {
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        font-weight: 500;
+    }
+    
+    .alert-warning {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        border: 1px solid #ffeaa7;
+        color: #856404;
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        font-weight: 500;
+    }
+    
+    .alert-info {
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        font-weight: 500;
+    }
+    
+    /* Table Styling */
+    .dataframe {
+        border: none !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+    }
+    
+    /* Sidebar Styling */
+    .css-1d391kg {
+        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .css-1d391kg .css-1v0mbdj {
+        color: white;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        margin-top: 3rem;
+        border-top: 2px solid #e9ecef;
+        color: #6c757d;
+        font-style: italic;
+    }
+    
+    /* Loading Spinner */
+    .loading-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem;
+    }
+    
+    /* Progress Steps */
+    .progress-steps {
+        display: flex;
+        justify-content: center;
+        margin: 2rem 0;
+        gap: 1rem;
+    }
+    
+    .step {
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        background: #e9ecef;
+        color: #6c757d;
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+    
+    .step.active {
+        background: #007bff;
+        color: white;
+    }
+    
+    .step.completed {
+        background: #28a745;
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# -------------------- Pattern 
+# -------------------- Main Header --------------------
+st.markdown("""
+<div class="main-header">
+    <h1 class="main-title">🚀 Customer Care System</h1>
+    <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz...</p>
+</div>
+""", unsafe_allow_html=True)
+
+# -------------------- Progress Steps --------------------
+def show_progress_steps(current_step=1):
+    steps = []
+    step_html = '<div class="progress-steps">'
+    for i, step in enumerate(steps, 1):
+        if i < current_step:
+            step_html += f'<div class="step completed">{step}</div>'
+        elif i == current_step:
+            step_html += f'<div class="step active">{step}</div>'
+        else:
+            step_html += f'<div class="step">{step}</div>'
+    step_html += '</div>'
+    return step_html
+
+# -------------------- Pattern --------------------
 style_pattern = re.compile(r"^\d{8}$")
 
-# -------------------- Excel Reader 
+# -------------------- Excel Reader --------------------
 def extract_styles_from_excel(file) -> list:
     try:
         if file.name.endswith(".xls"):
@@ -28,7 +265,7 @@ def extract_styles_from_excel(file) -> list:
                 if not val_str:
                     break
                 if style_pattern.match(val_str):
-                    return [val_str]  # ✅ Only return the first match
+                    return [val_str]
                 else:
                     break
         else:
@@ -47,10 +284,10 @@ def extract_styles_from_excel(file) -> list:
                 row += 1
         return []
     except Exception as e:
-        st.error(f"Error reading Excel file: {e}")
+        st.error(f"❌ Error reading Excel file: {e}")
         return []
 
-# -------------------- Style to PDF 
+# -------------------- Style to PDF --------------------
 def create_styles_pdf(styles: list) -> BytesIO:
     doc = fitz.open()
     page = doc.new_page()
@@ -64,55 +301,135 @@ def create_styles_pdf(styles: list) -> BytesIO:
     buf.seek(0)
     return buf
 
-# -------------------- Merge PDF 
+# -------------------- Merge PDF --------------------
 def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out = fitz.open()
     pdf_styles = fitz.open(stream=styles_pdf.read(), filetype="pdf")
     pdf_orig = fitz.open(stream=original_pdf.read(), filetype="pdf")
     
-
     pdf_out.insert_pdf(pdf_styles)
     pdf_out.insert_pdf(pdf_orig)
     
-
     output = BytesIO()
     pdf_out.save(output)
     output.seek(0)
     return output
 
-# -------------------- Main Logic 
-if excel_file and pdf_file:
-    styles = extract_styles_from_excel(excel_file)
+# -------------------- Sidebar Configuration --------------------
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem 0; color: black;">
+        <h2>⚙️ Control Panel</h2>
+        <p style="opacity: 0.8;">Configure your analysis settings</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 🔧 Analysis Method")
+    method = st.selectbox(
+        "Select Matching Algorithm:",
+        ["Enhanced Matching (with PO Color/Size)", "Smart Matching (Exact)", "Smart Matching with Tolerance"],
+        help="Choose the comparison algorithm that best fits your data"
+    )
+    
+    st.markdown("### 📁 File Upload")
+    wo_file = st.file_uploader(
+        "📄 Work Order (WO) PDF", 
+        type="pdf",
+        help="Upload your Work Order PDF file"
+    )
+    
+    po_file = st.file_uploader(
+        "📋 Purchase Order (PO) PDF", 
+        type="pdf",
+        help="Upload your Purchase Order PDF file"
+    )
+    
+    # File status indicators
+    if wo_file:
+        st.success("✅ WO File Loaded")
+    if po_file:
+        st.success("✅ PO File Loaded")
+    
+    if wo_file and po_file:
+        st.markdown("### 🚀 Ready to Process")
+        st.info("Both files are loaded. Analysis will begin automatically.")
 
-    if styles:
-        st.subheader("✅ Extracted Style Numbers")
-        st.dataframe(pd.DataFrame(styles, columns=["Style"]))
-        styles_pdf = create_styles_pdf(styles)
-        final_pdf = merge_pdfs(pdf_file, styles_pdf)
-
-        st.download_button(
-            label="📄 Download Final PDF with Styles",
-            data=final_pdf,
-            file_name="Merged-PO.pdf",
-            mime="application/pdf"
+# -------------------- Excel/PDF Merger Section --------------------
+with st.expander("📓 PDF Style Number Merger", expanded=False):
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">📊 Excel to PDF Style Extractor</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        excel_file = st.file_uploader(
+            "📤 Upload Excel File", 
+            type=["xls", "xlsx"], 
+            key="excel",
+            help="Upload Excel file containing style numbers"
         )
-    else:
-        st.warning("No valid 8-digit style numbers found in the Excel file.")
-elif excel_file or pdf_file:
-    st.info("Please upload both an Excel and a PDF file to proceed.")
-# -------------------- End of that code.................
+    
+    with col2:
+        pdf_file_merger = st.file_uploader(
+            "📄 Upload PDF File", 
+            type=["pdf"], 
+            key="pdf_merger",
+            help="Upload PDF file to merge with extracted styles"
+        )
 
+    if excel_file and pdf_file_merger:
+        with st.spinner("🔄 Extracting styles and merging..."):
+            styles = extract_styles_from_excel(excel_file)
 
+        if styles:
+            st.markdown("""
+            <div class="alert-success">
+                ✅ <strong>Success!</strong> Style numbers extracted successfully.
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.dataframe(
+                    pd.DataFrame(styles, columns=["📋 Extracted Style Numbers"]), 
+                    use_container_width=True
+                )
+            
+            with col2:
+                styles_pdf = create_styles_pdf(styles)
+                final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
+                
+                st.download_button(
+                    label="⬬ Download Merged PDF",
+                    data=final_pdf,
+                    file_name="Merged-PO.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+        else:
+            st.markdown("""
+            <div class="alert-warning">
+                ⚠️ <strong>Warning:</strong> No valid 8-digit style numbers found in the Excel file.
+            </div>
+            """, unsafe_allow_html=True)
+    elif excel_file or pdf_file_merger:
+        st.markdown("""
+        <div class="alert-info">
+            ℹ️ <strong>Info:</strong> Please upload both Excel and PDF files to proceed with merging.
+        </div>
+        """, unsafe_allow_html=True)
 
+# -------------------- Helper Functions (keeping existing logic) --------------------
 def truncate_after_sri_lanka(addr: str) -> str:
     part, sep, _ = addr.partition("Sri Lanka")
     return (part + sep).strip() if sep else addr.strip()
 
-
 def extract_wo_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
 
     customer = delivery = ""
     lines = text.split("\n")
@@ -121,7 +438,6 @@ def extract_wo_fields(pdf_file):
             customer = lines[i - 1].strip() if i > 0 else ""
             delivery = re.sub(r"Deliver To:\s*", "", ln).strip()
             break
-
 
     codes = []
     for line in lines:
@@ -138,7 +454,6 @@ def extract_wo_fields(pdf_file):
                         codes.append(clean)
             break
 
-
     po_numbers = list(set(re.findall(r'\b\d{7,8}\b', text)))
     return {
         "customer_name": customer,
@@ -147,28 +462,23 @@ def extract_wo_fields(pdf_file):
         "po_numbers": po_numbers
     }
 
-
 def extract_po_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
 
     lines = [ln.strip() for ln in text.split("\n")]
     capture = False
     address_lines = []
     blank_count = 0
 
-
     for ln in lines:
         if "Delivery Location:" in ln:
             capture = True
             continue
 
-
         if capture:
             if "Forwarder:" in ln:
                 break
-
 
             if not ln:
                 blank_count += 1
@@ -178,9 +488,7 @@ def extract_po_fields(pdf_file):
             else:
                 blank_count = 0
 
-
             address_lines.append(ln)
-
 
     raw_addr = " ".join(address_lines)
     matches = re.findall(r".*Sri Lanka.*", text, re.IGNORECASE)
@@ -190,19 +498,14 @@ def extract_po_fields(pdf_file):
         if a and a not in seen:
             seen.append(a)
 
-
     sri = [a for a in seen if "sri lanka" in a.lower()]
     chosen = max(sri, key=len) if sri else seen[0] if seen else raw_addr
     final_addr = truncate_after_sri_lanka(chosen)
 
-
     po_codes = re.findall(r"(LB\s*\d+)", text)
-
-
     sup_ref_codes = re.findall(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
     tag_codes = re.findall(r"TAG\.PRC\.TKT_(.*?)_REG", text)
     all_product_codes = list(set([c.strip().upper() for c in sup_ref_codes + tag_codes]))
-
 
     return {
         "delivery_location": final_addr,
@@ -210,9 +513,6 @@ def extract_po_fields(pdf_file):
         "all_found_addresses": seen
     }
 
-
-
-# New helper function: Extract style numbers under "Extracted Style Numbers:" on first PO page
 def extract_style_numbers_from_po_first_page(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         if len(pdf.pages) == 0:
@@ -220,7 +520,6 @@ def extract_style_numbers_from_po_first_page(pdf_file):
         first_page = pdf.pages[0]
         text = first_page.extract_text() or ""
         lines = text.split("\n")
-
 
         extracted_styles = []
         capture = False
@@ -230,23 +529,19 @@ def extract_style_numbers_from_po_first_page(pdf_file):
                 continue
             if capture:
                 if line.strip() == "" or re.match(r"^\s*-+\s*$", line):
-                    # Stop capturing on empty line or separator line
                     break
-                # Extract style numbers: assume numbers are separated by spaces or commas
                 numbers = re.findall(r"\b\d{6,8}\b", line)
                 extracted_styles.extend(numbers)
         return extracted_styles
-    
 
 def reorder_wo_by_size(wo_items):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
 
     def get_order(wo):
         size = wo.get("Size 1", "").strip().upper()
-        return size_order.get(size, 99)  # Unknown sizes go last
+        return size_order.get(size, 99)
 
     return sorted(wo_items, key=get_order)
-
 
 def reorder_po_by_size(po_details):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
@@ -257,26 +552,8 @@ def reorder_po_by_size(po_details):
    
     return sorted(po_details, key=get_order)
 
-
-def extract_style_numbers_from_po_first_page(pdf_file):
-    # Use PyMuPDF to read the first page for style numbers
-    with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
-        first_page = doc[0].get_text()
-        match = re.search(r"Extracted Style Numbers:\s*(.*)", first_page, re.IGNORECASE)
-        if match:
-            styles_text = match.group(1).strip()
-            # Split by comma or newlines
-            styles = re.split(r"[,\n]", styles_text)
-            return [s.strip() for s in styles if s.strip()]
-    return []
-
-# -------------------- UPDATED PO DETAILS EXTRACTION FUNCTION --------------------
 def extract_po_details(pdf_file):
-    """
-    Enhanced function to handle multiple PO formats:
-    1. Original format with Sup Ref codes and item tables
-    2. New format with TAG codes and Color/Size/Destination lines
-    """
+    """Enhanced function to handle multiple PO formats"""
     pdf_file.seek(0)
     extracted_styles = extract_style_numbers_from_po_first_page(pdf_file)
     repeated_style = extracted_styles[0] if extracted_styles else ""
@@ -286,53 +563,40 @@ def extract_po_details(pdf_file):
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
         lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
 
-    # Try to detect which format this is
     has_tag_format = "TAG.PRC.TKT_" in text and "Color/Size/Destination :" in text
     has_original_format = any("Colour/Size/Destination:" in line for line in lines) or re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
 
     po_items = []
 
     if has_tag_format and not has_original_format:
-        # NEW FORMAT HANDLING - TAG format with Color/Size/Destination
-        print("Detected TAG format PO")
-        
-        # Extract product code from TAG format
+        # NEW FORMAT HANDLING
         tag_match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", text)
         product_code_used = tag_match.group(1).strip().upper() if tag_match else ""
         
-        # Process each line for item extraction
         i = 0
         while i < len(lines):
             line = lines[i]
-            
-            # Look for item number pattern at start of line: "1 TAG.PRC.TKT_..."
             item_match = re.match(r'^(\d+)\s+TAG\.PRC\.TKT_.*?(\d+\.\d+)\s+PCS', line)
             if item_match:
                 item_no = item_match.group(1)
                 quantity = int(float(item_match.group(2)))
                 
-                # Look for Color/Size/Destination in next few lines
                 colour = size = ""
                 for j in range(i + 1, min(i + 5, len(lines))):
                     next_line = lines[j]
                     if "Color/Size/Destination :" in next_line:
-                        # Extract color and size from format: "Color/Size/Destination : 34Y5 45K / L / X"
                         cs_part = next_line.split(":", 1)[1].strip()
                         cs_parts = [part.strip() for part in cs_part.split(" / ") if part.strip()]
                         
                         if len(cs_parts) >= 2:
-                            # First part contains color code(s)
                             colour_part = cs_parts[0].strip()
-                            # Extract the main color code (first part before space)
                             colour = colour_part.split()[0] if colour_part else ""
-                            
-                            # Second part is size
                             size = cs_parts[1].strip().upper()
                         break
                 
                 po_items.append({
                     "Item_Number": item_no,
-                    "Item_Code": f"TAG_{product_code_used}",  # Create item code from TAG
+                    "Item_Code": f"TAG_{product_code_used}",
                     "Quantity": quantity,
                     "Colour_Code": colour.upper() if colour else "",
                     "Size": size,
@@ -340,12 +604,8 @@ def extract_po_details(pdf_file):
                     "Product_Code": product_code_used,
                 })
             i += 1
-
     else:
-        # ORIGINAL FORMAT HANDLING (fallback to original logic)
-        print("Detected original format PO or fallback")
-        
-        # Extract product codes (original logic)
+        # ORIGINAL FORMAT HANDLING
         sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
         sup_ref_code = sup_ref_match.group(1).strip().upper() if sup_ref_match else ""
 
@@ -361,7 +621,6 @@ def extract_po_details(pdf_file):
 
         product_code_used = sup_ref_code if sup_ref_code else tag_code
 
-        # Extract items (original logic)
         for i, line in enumerate(lines):
             item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+(\d+\.\d+)\s+PCS', line)
             if item_match:
@@ -399,9 +658,7 @@ def extract_po_details(pdf_file):
 
     return po_items
 
-
 def extract_wo_items_table(pdf_file, product_codes=None):
-    import re
     items = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -413,7 +670,6 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                             colour = (row[1] or "").strip().upper()
                             qty = 0
                             size_val = ""
-
 
                             for col in row[2:]:
                                 if col:
@@ -432,12 +688,10 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                         size_val = text
                                         break
 
-
                             for col in reversed(row):
                                 if col and str(col).strip().isdigit():
                                     qty = int(str(col).strip())
                                     break
-
 
                             if qty > 0:
                                 items.append({
@@ -448,7 +702,6 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                     "WO Product Code": " / ".join(product_codes) if product_codes else ""
                                 })
     return items
-
 
 def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
     matched, mismatched = [], []
@@ -473,7 +726,6 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
 
-            # Full Match Check
             if wq == pq and ws == ps and wc == pc and wstyle == pstyle:
                 matched.append({
                     "Style": wstyle, "Style 2": pstyle,
@@ -490,7 +742,6 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
                 full_match_found = True
                 break
             else:
-                # Score partial match
                 score = 0
                 if abs(pq - wq) <= tolerance:
                     score += 1
@@ -528,12 +779,11 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
                 "Qty Match": qty_match, "Size Match": size_match,
                 "Colour Match": colour_match, "Style Match": style_match,
                 "Diff": pq - wq,
-                "Status": "🟨 NO Match",
+                "Status": "🟨 Partial Match",
                 "PO Item Code": po.get("Item_Code", "")
             })
             used.add(partial_match_idx)
         else:
-            # No PO match found for this WO item
             mismatched.append({
                 "Style": wstyle, "Style 2": "",
                 "WO Size": ws, "PO Size": "",
@@ -564,7 +814,6 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
 
     return matched, mismatched
 
-
 def compare_addresses(wo, po):
     ns = fuzz.token_sort_ratio(wo["customer_name"], po["delivery_location"])
     as_ = fuzz.token_sort_ratio(wo["delivery_address"], po["delivery_location"])
@@ -572,15 +821,12 @@ def compare_addresses(wo, po):
     return {"WO Name": wo["customer_name"], "WO Addr": wo["delivery_address"], "PO Addr": po["delivery_location"],
             "Name %": ns, "Addr %": as_, "Overall %": comb, "Status": "✅ Match" if comb > 85 else "⚠️ Review"}
 
-
 def compare_codes(po_details, wo_items):
     po_codes = set(po.get("Product_Code", "").strip().upper() for po in po_details if po.get("Product_Code"))
     wo_codes = set(w.get("WO Product Code", "").strip().upper() for w in wo_items if w.get("WO Product Code"))
 
-
     comparison = []
     all_codes = po_codes.union(wo_codes)
-
 
     for code in all_codes:
         in_po = code in po_codes
@@ -588,32 +834,18 @@ def compare_codes(po_details, wo_items):
         status = "✅Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
         comparison.append({"PO Code": code if in_po else "", "WO Code": code if in_wo else "", "Status": status})
 
-
     return comparison
 
-
-# --- Streamlit UI ---
-st.set_page_config(page_title="WO ↔ PO Comparator", layout="wide")
-
-
-st.title("📄 Customer Care System")
-st.subheader("🔁 PO vs WO Comparison Dashboard")
-
-
-with st.sidebar:
-    st.header("⚙️ Settings")
-    method = st.selectbox("Select Matching Method:",
-                          ["Enhanced Matching (with PO Color/Size)", "Smart Matching (Exact)", "Smart Matching with Tolerance"])
-    wo_file = st.file_uploader("📤 Upload WO PDF", type="pdf")
-    po_file = st.file_uploader("📤 Upload PO PDF", type="pdf")
-
-
+# -------------------- Main Analysis Section --------------------
 if wo_file and po_file:
-    with st.spinner("🔄 Processing files..."):
+    # Show progress
+    st.markdown(show_progress_steps(2), unsafe_allow_html=True)
+    
+    with st.spinner("🔄 Processing files and analyzing data..."):
         wo = extract_wo_fields(wo_file)
         po = extract_po_fields(po_file)
         wo_items = extract_wo_items_table(wo_file, wo["product_codes"])
-        wo_items = reorder_wo_by_size(wo_items)  # <-- reorder WO items here
+        wo_items = reorder_wo_by_size(wo_items)
 
         po_details_raw = extract_po_details(po_file)
         po_details = reorder_po_by_size(po_details_raw)
@@ -625,13 +857,90 @@ if wo_file and po_file:
         else:
             matched, mismatched = [], []
 
-    st.success("✅ Comparison Completed")
+    # Show completion
+    st.markdown(show_progress_steps(4), unsafe_allow_html=True)
+    
+    # Success message
+    st.markdown("""
+    <div class="alert-success">
+        🎉 <strong>Analysis Complete!</strong> Your files have been processed successfully.
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("🧭 Address Comparison")
-    st.dataframe(pd.DataFrame([addr_res]), use_container_width=True)
+    # -------------------- Key Metrics Dashboard --------------------
+    st.markdown("""
+    <div class="section-header">
+        <h2 class="section-title">📊 Analysis Overview</h2>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.subheader("🔢 Product Code Comparison")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_wo_items = len(wo_items)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{total_wo_items}</div>
+            <div class="metric-label">WO Items</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        total_po_items = len(po_details)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{total_po_items}</div>
+            <div class="metric-label">PO Items</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        total_matched = len([m for m in matched if "Full Match" in m.get("Status", "")])
+        st.markdown(f"""
+        <div class="metric-card" style="border-top-color: #28a745;">
+            <div class="metric-value" style="color: #28a745;">{total_matched}</div>
+            <div class="metric-label">Perfect Matches</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        total_mismatched = len(mismatched)
+        st.markdown(f"""
+        <div class="metric-card" style="border-top-color: #dc3545;">
+            <div class="metric-value" style="color: #dc3545;">{total_mismatched}</div>
+            <div class="metric-label">Mismatches</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # -------------------- Address Comparison --------------------
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">🏠 Address Verification</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    addr_df = pd.DataFrame([addr_res])
+    st.dataframe(addr_df, use_container_width=True, hide_index=True)
+    
+    if addr_res.get("Status") == "✅ Match":
+        st.markdown("""
+        <div class="alert-success">
+            ✅ <strong>Address Match:</strong> Delivery addresses are verified and match successfully.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="alert-warning">
+            ⚠️ <strong>Address Review Required:</strong> Please verify the delivery addresses manually.
+        </div>
+        """, unsafe_allow_html=True)
+
+    # -------------------- Product Code Comparison --------------------
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">🔢 Product Code Analysis</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
     po_all_codes = [po.get("Product_Code", "").strip().upper() for po in po_details if po.get("Product_Code")]
     wo_all_codes = [wo.get("WO Product Code", "").strip().upper() for wo in wo_items if wo.get("WO Product Code")]
@@ -650,67 +959,114 @@ if wo_file and po_file:
             status = "✅ Exact Match" if po_code in wo_parts else "❌ No Match"
         elif po_code and wo_code and "/" in po_code:
             po_parts = [part.strip().upper() for part in po_code.split("/")]
-            status = "✅ Partial Match (PO contains WO code)" if wo_code in po_parts else "❌ No Match"
+            status = "✅ Partial Match" if wo_code in po_parts else "❌ No Match"
         elif po_code and wo_code:
             status = "❌ No Match"
         else:
             status = "⚪ Empty"
 
         comparison_rows.append({
-            "PO Product Code": po_code,
-            "WO Product Code": wo_code,
-            "Match Status": status
+            "📋 PO Product Code": po_code,
+            "📄 WO Product Code": wo_code,
+            "🔍 Match Status": status
         })
 
     code_table_df = pd.DataFrame(comparison_rows)
-    st.dataframe(code_table_df, use_container_width=True)
+    st.dataframe(code_table_df, use_container_width=True, hide_index=True)
 
-    st.subheader("🌇 Matched WO/PO Items")
+    # -------------------- Item Matching Results --------------------
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">✅ Successfully Matched Items</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
     if matched:
-        st.dataframe(pd.DataFrame(matched), use_container_width=True)
+        matched_df = pd.DataFrame(matched)
+        st.dataframe(matched_df, use_container_width=True, hide_index=True)
+        
+        perfect_matches = len([m for m in matched if "Full Match" in m.get("Status", "")])
+        if perfect_matches == len(matched):
+            st.markdown("""
+            <div class="alert-success">
+                🎯 <strong>Perfect Score!</strong> All matched items have complete data alignment.
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.info("No matched items found or matching method not selected.")
+        st.markdown("""
+        <div class="alert-info">
+            ℹ️ <strong>No Matches Found:</strong> No items were matched with the current algorithm. Try adjusting the matching method.
+        </div>
+        """, unsafe_allow_html=True)
 
-    # --- New logic: show alert if all checks are good ---
-
+    # -------------------- Final Status Check --------------------
     address_ok = addr_res.get("Status", "") == "✅ Match"
-    codes_ok = (not code_table_df.empty) and all(code_table_df["Match Status"].str.contains("✅"))
+    codes_ok = not code_table_df.empty and all(code_table_df["🔍 Match Status"] == "✅ Exact Match")
     matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
-    matched_ok = (not matched_df.empty) and all(matched_df["Status"].str.contains("Full Match"))
+    matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
     mismatched_empty = len(mismatched) == 0
 
     if address_ok and codes_ok and matched_ok and mismatched_empty:
-        st.success("🎉 All checking data are matched successfully!")
+        st.markdown("""
+        <div class="alert-success" style="text-align: center; font-size: 1.2rem;">
+            🎉 <strong>PERFECT MATCH!</strong> All verification checks passed successfully! 🎉
+        </div>
+        """, unsafe_allow_html=True)
+        st.balloons()
     else:
-        st.warning("⚠️ Some mismatches detected. Please review the details above.")
+        st.markdown("""
+        <div class="alert-warning">
+            ⚠️ <strong>Review Required:</strong> Some data points need manual verification. Check the details below.
+        </div>
+        """, unsafe_allow_html=True)
 
-    
-    # Safe definitions to avoid NameError
-    matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
-    code_table_df = pd.DataFrame(comparison_rows) if comparison_rows else pd.DataFrame()
-    address_ok = addr_res.get("Status", "") == "✅ Match"
+    # -------------------- Mismatched Items --------------------
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">❗ Items Requiring Attention</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Checks
-    codes_ok = not code_table_df.empty and all(code_table_df["Match Status"] == "✅ Exact Match")
-    matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
-
-    if address_ok and codes_ok and matched_ok:
-        st.success("🎉 All data in Address, Product Codes, and Matched Items are fully matched!")
-
-    st.subheader("❗ Mismatched or Extra Items")
     if mismatched:
-        st.dataframe(pd.DataFrame(mismatched), use_container_width=True)
+        mismatched_df = pd.DataFrame(mismatched)
+        st.dataframe(mismatched_df, use_container_width=True, hide_index=True)
+        
+        st.markdown(f"""
+        <div class="alert-warning">
+            ⚠️ <strong>{len(mismatched)} items</strong> require manual review or correction.
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success("No mismatched items found.")
+        st.markdown("""
+        <div class="alert-success">
+            ✅ <strong>No Mismatches!</strong> All items have been successfully matched.
+        </div>
+        """, unsafe_allow_html=True)
+
+    # -------------------- Detailed Data Tables --------------------
+    with st.expander("📊 Detailed Data Tables", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 📄 Work Order (WO) Items")
+            wo_df = pd.DataFrame(wo_items)
+            st.dataframe(wo_df, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.markdown("### 📋 Purchase Order (PO) Items")
+            po_df = pd.DataFrame(po_details)
+            st.dataframe(po_df, use_container_width=True, hide_index=True)
 
 
-    st.subheader("🧾 Work Order (WO) Items Table")
-    st.dataframe(pd.DataFrame(wo_items), use_container_width=True)
 
-
-    st.subheader("📦 Purchase Order (PO) Details")
-    st.dataframe(pd.DataFrame(po_details), use_container_width=True)
-
-
-st.markdown("<br><hr><center><b style='color:#888'>Created by Razz... </b></center>",
-            unsafe_allow_html=True)
+# -------------------- Footer --------------------
+st.markdown("""
+<div class="footer">
+    <p>
+        🚀 <strong>Customer Care System v2.0</strong> | 
+        Powered by <strong>Razz....</strong> | 
+        Advanced PDF Analysis & Comparison Technology
+    </p>
+    
+</div>
+""", unsafe_allow_html=True)
