@@ -233,7 +233,7 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1 class="main-title">🚀 Customer Care System</h1>
-    <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz...</p>
+    <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz Solutions</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -314,6 +314,28 @@ def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out.save(output)
     output.seek(0)
     return output
+
+# -------------------- Missing Function: Extract Style Numbers from PO First Page --------------------
+def extract_style_numbers_from_po_first_page(pdf_file):
+    """Extract style numbers from the first page of PO PDF"""
+    try:
+        pdf_file.seek(0)
+        with pdfplumber.open(pdf_file) as pdf:
+            if len(pdf.pages) > 0:
+                first_page_text = pdf.pages[0].extract_text() or ""
+                # Look for "Extracted Style Numbers:" section
+                extracted_section_match = re.search(r'Extracted Style Numbers:\s*(.+)', first_page_text, re.IGNORECASE)
+                if extracted_section_match:
+                    extracted_styles = re.findall(r'\b\d{8}\b', extracted_section_match.group(1))
+                    return extracted_styles
+                
+                # Fallback: look for any 8-digit numbers
+                style_numbers = re.findall(r'\b\d{8}\b', first_page_text)
+                return style_numbers
+        return []
+    except Exception as e:
+        st.error(f"Error extracting style numbers from PO: {e}")
+        return []
 
 # -------------------- Sidebar Configuration --------------------
 with st.sidebar:
@@ -403,7 +425,7 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
                 final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
                 
                 st.download_button(
-                    label="⬬ Download Merged PDF",
+                    label="⬇️ Download Merged PDF",
                     data=final_pdf,
                     file_name="Merged-PO.pdf",
                     mime="application/pdf",
@@ -422,7 +444,7 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
         </div>
         """, unsafe_allow_html=True)
 
-# -------------------- Helper Functions (keeping existing logic) --------------------
+# -------------------- Helper Functions --------------------
 def truncate_after_sri_lanka(addr: str) -> str:
     part, sep, _ = addr.partition("Sri Lanka")
     return (part + sep).strip() if sep else addr.strip()
@@ -513,26 +535,35 @@ def extract_po_fields(pdf_file):
         "all_found_addresses": seen
     }
 
-def extract_style_numbers_from_po_first_page(pdf_file):
-    with pdfplumber.open(pdf_file) as pdf:
-        if len(pdf.pages) == 0:
-            return []
-        first_page = pdf.pages[0]
-        text = first_page.extract_text() or ""
-        lines = text.split("\n")
+def extract_style_numbers(po_pdf_path):
+    style_numbers = set()
 
-        extracted_styles = []
-        capture = False
-        for line in lines:
-            if "Extracted Style Numbers:" in line:
-                capture = True
-                continue
-            if capture:
-                if line.strip() == "" or re.match(r"^\s*-+\s*$", line):
-                    break
-                numbers = re.findall(r"\b\d{6,8}\b", line)
-                extracted_styles.extend(numbers)
-        return extracted_styles
+    with pdfplumber.open(po_pdf_path) as pdf:
+        # ---------- 1. Check PO tables ----------
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            if tables:
+                for table in tables:
+                    for row in table:
+                        if row:
+                            for cell in row:
+                                if cell and re.search(r'\b[A-Z]{2,}\s*\d{3,}\b', cell):
+                                    style_numbers.add(cell.strip())
+
+        # ---------- 2. Check free-text (regex search) ----------
+        full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        found_free_text_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', full_text)
+        style_numbers.update([s.strip() for s in found_free_text_styles])
+
+        # ---------- 3. Check "Extracted Style Numbers:" section on first page ----------
+        if len(pdf.pages) > 0:
+            first_page_text = pdf.pages[0].extract_text() or ""
+            extracted_section_match = re.search(r'Extracted Style Numbers:\s*(.+)', first_page_text)
+            if extracted_section_match:
+                extracted_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', extracted_section_match.group(1))
+                style_numbers.update([s.strip() for s in extracted_styles])
+
+    return list(style_numbers)
 
 def reorder_wo_by_size(wo_items):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
@@ -662,45 +693,48 @@ def extract_wo_items_table(pdf_file, product_codes=None):
     items = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            for table in page.extract_tables() or []:
-                for row in table or []:
-                    if row and len(row) >= 6:
-                        style = (row[0] or "").strip()
-                        if re.match(r"^\d{8}$", style):
-                            colour = (row[1] or "").strip().upper()
-                            qty = 0
-                            size_val = ""
+            tables = page.extract_tables()
+            if tables:
+                for table in tables:
+                    if table:
+                        for row in table:
+                            if row and len(row) >= 6:
+                                style = (row[0] or "").strip()
+                                if re.match(r"^\d{8}$", style):
+                                    colour = (row[1] or "").strip().upper()
+                                    qty = 0
+                                    size_val = ""
 
-                            for col in row[2:]:
-                                if col:
-                                    text = str(col).strip().upper()
-                                    if "|" in text:
-                                        left_size = text.split("|")[0].strip()
-                                        if left_size:
-                                            size_val = left_size
+                                    for col in row[2:]:
+                                        if col:
+                                            text = str(col).strip().upper()
+                                            if "|" in text:
+                                                left_size = text.split("|")[0].strip()
+                                                if left_size:
+                                                    size_val = left_size
+                                                    break
+                                            if "/" in text and not size_val:
+                                                left_size = text.split("/")[0].strip()
+                                                if left_size:
+                                                    size_val = left_size
+                                                    break
+                                            if not size_val and not text.isdigit():
+                                                size_val = text
+                                                break
+
+                                    for col in reversed(row):
+                                        if col and str(col).strip().isdigit():
+                                            qty = int(str(col).strip())
                                             break
-                                    if "/" in text and not size_val:
-                                        left_size = text.split("/")[0].strip()
-                                        if left_size:
-                                            size_val = left_size
-                                            break
-                                    if not size_val and not text.isdigit():
-                                        size_val = text
-                                        break
 
-                            for col in reversed(row):
-                                if col and str(col).strip().isdigit():
-                                    qty = int(str(col).strip())
-                                    break
-
-                            if qty > 0:
-                                items.append({
-                                    "Style": style,
-                                    "WO Colour Code": colour,
-                                    "Size 1": size_val,
-                                    "Quantity": qty,
-                                    "WO Product Code": " / ".join(product_codes) if product_codes else ""
-                                })
+                                    if qty > 0:
+                                        items.append({
+                                            "Style": style,
+                                            "WO Colour Code": colour,
+                                            "Size 1": size_val,
+                                            "Quantity": qty,
+                                            "WO Product Code": " / ".join(product_codes) if product_codes else ""
+                                        })
     return items
 
 def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
