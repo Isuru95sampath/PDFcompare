@@ -9,7 +9,7 @@ from fuzzywuzzy import fuzz
 
 # -------------------- UI Configuration --------------------
 st.set_page_config(
-    page_title="Customer Care System - Razz Solutions",
+    page_title="CS Data Entry Checking Tool – Price Tickets - Razz Solutions",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -232,8 +232,8 @@ st.markdown("""
 # -------------------- Main Header --------------------
 st.markdown("""
 <div class="main-header">
-    <h1 class="main-title">🚀 Customer Care System</h1>
-    <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz Solutions</p>
+    <h1 class="main-title">🚀 CS Data Entry Checking Tool – Price Tickets</h1>
+    <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz </p>
 </div>
 """, unsafe_allow_html=True)
 
