@@ -239,17 +239,7 @@ st.markdown("""
 
 # -------------------- Progress Steps --------------------
 def show_progress_steps(current_step=1):
-    steps = []
-    step_html = '<div class="progress-steps">'
-    for i, step in enumerate(steps, 1):
-        if i < current_step:
-            step_html += f'<div class="step completed">{step}</div>'
-        elif i == current_step:
-            step_html += f'<div class="step active">{step}</div>'
-        else:
-            step_html += f'<div class="step">{step}</div>'
-    step_html += '</div>'
-    return step_html
+    return ""
 
 # -------------------- Pattern --------------------
 style_pattern = re.compile(r"^\d{8}$")
@@ -337,114 +327,25 @@ def extract_style_numbers_from_po_first_page(pdf_file):
         st.error(f"Error extracting style numbers from PO: {e}")
         return []
 
-# -------------------- Sidebar Configuration --------------------
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 1rem 0; color: black;">
-        <h2>⚙️ Control Panel</h2>
-        <p style="opacity: 0.8;">Configure your analysis settings</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("### 🔧 Analysis Method")
-    method = st.selectbox(
-        "Select Matching Algorithm:",
-        ["Enhanced Matching (with PO Color/Size)", "Smart Matching (Exact)", "Smart Matching with Tolerance"],
-        help="Choose the comparison algorithm that best fits your data"
-    )
-    
-    st.markdown("### 📁 File Upload")
-    wo_file = st.file_uploader(
-        "📄 Work Order (WO) PDF", 
-        type="pdf",
-        help="Upload your Work Order PDF file"
-    )
-    
-    po_file = st.file_uploader(
-        "📋 Purchase Order (PO) PDF", 
-        type="pdf",
-        help="Upload your Purchase Order PDF file"
-    )
-    
-    # File status indicators
-    if wo_file:
-        st.success("✅ WO File Loaded")
-    if po_file:
-        st.success("✅ PO File Loaded")
-    
-    if wo_file and po_file:
-        st.markdown("### 🚀 Ready to Process")
-        st.info("Both files are loaded. Analysis will begin automatically.")
-
-# -------------------- Excel/PDF Merger Section --------------------
-with st.expander("📓 PDF Style Number Merger", expanded=False):
-    st.markdown("""
-    <div class="section-header">
-        <h3 class="section-title">📊 Excel to PDF Style Extractor</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        excel_file = st.file_uploader(
-            "📤 Upload Excel File", 
-            type=["xls", "xlsx"], 
-            key="excel",
-            help="Upload Excel file containing style numbers"
-        )
-    
-    with col2:
-        pdf_file_merger = st.file_uploader(
-            "📄 Upload PDF File", 
-            type=["pdf"], 
-            key="pdf_merger",
-            help="Upload PDF file to merge with extracted styles"
-        )
-
-    if excel_file and pdf_file_merger:
-        with st.spinner("🔄 Extracting styles and merging..."):
-            styles = extract_styles_from_excel(excel_file)
-
-        if styles:
-            st.markdown("""
-            <div class="alert-success">
-                ✅ <strong>Success!</strong> Style numbers extracted successfully.
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.dataframe(
-                    pd.DataFrame(styles, columns=["📋 Extracted Style Numbers"]), 
-                    use_container_width=True
-                )
-            
-            with col2:
-                styles_pdf = create_styles_pdf(styles)
-                final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
-                
-                st.download_button(
-                    label="⬇️ Download Merged PDF",
-                    data=final_pdf,
-                    file_name="Merged-PO.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-        else:
-            st.markdown("""
-            <div class="alert-warning">
-                ⚠️ <strong>Warning:</strong> No valid 8-digit style numbers found in the Excel file.
-            </div>
-            """, unsafe_allow_html=True)
-    elif excel_file or pdf_file_merger:
-        st.markdown("""
-        <div class="alert-info">
-            ℹ️ <strong>Info:</strong> Please upload both Excel and PDF files to proceed with merging.
-        </div>
-        """, unsafe_allow_html=True)
-
 # -------------------- Helper Functions --------------------
+def clean_quantity(qty_str):
+    """Convert PO quantity strings like '1,148.00' into integers (1148)."""
+    try:
+        if isinstance(qty_str, (int, float)):
+            return int(round(float(qty_str)))
+
+        # Remove commas, extra spaces
+        qty_str = str(qty_str).replace(",", "").strip()
+
+        # If it looks like a decimal (e.g., '1148.00'), keep only integer part
+        if "." in qty_str:
+            return int(float(qty_str))
+
+        return int(qty_str) if qty_str.isdigit() else 0
+    except (ValueError, TypeError):
+        return 0
+
+
 def truncate_after_sri_lanka(addr: str) -> str:
     part, sep, _ = addr.partition("Sri Lanka")
     return (part + sep).strip() if sep else addr.strip()
@@ -468,10 +369,10 @@ def extract_wo_fields(pdf_file):
             for match in found:
                 for code in match.split("/"):
                     clean = code.strip().upper()
-                    if "-" in clean:
-                        parts = clean.split("-")
-                        if len(parts) >= 2:
-                            clean = f"{parts[0]}-{parts[1]}"
+                    
+                    # New logic: Replace "-" with space
+                    clean = clean.replace("-", " ")
+                    
                     if clean:
                         codes.append(clean)
             break
@@ -539,7 +440,7 @@ def extract_style_numbers(po_pdf_path):
     style_numbers = set()
 
     with pdfplumber.open(po_pdf_path) as pdf:
-        # ---------- 1. Check PO tables ----------
+        # Check PO tables
         for page in pdf.pages:
             tables = page.extract_tables()
             if tables:
@@ -550,12 +451,12 @@ def extract_style_numbers(po_pdf_path):
                                 if cell and re.search(r'\b[A-Z]{2,}\s*\d{3,}\b', cell):
                                     style_numbers.add(cell.strip())
 
-        # ---------- 2. Check free-text (regex search) ----------
+        # Check free-text (regex search)
         full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
         found_free_text_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', full_text)
         style_numbers.update([s.strip() for s in found_free_text_styles])
 
-        # ---------- 3. Check "Extracted Style Numbers:" section on first page ----------
+        # Check "Extracted Style Numbers:" section on first page
         if len(pdf.pages) > 0:
             first_page_text = pdf.pages[0].extract_text() or ""
             extracted_section_match = re.search(r'Extracted Style Numbers:\s*(.+)', first_page_text)
@@ -584,7 +485,7 @@ def reorder_po_by_size(po_details):
     return sorted(po_details, key=get_order)
 
 def extract_po_details(pdf_file):
-    """Enhanced function to handle multiple PO formats"""
+    """Enhanced function to handle multiple PO formats with quantity aggregation"""
     pdf_file.seek(0)
     extracted_styles = extract_style_numbers_from_po_first_page(pdf_file)
     repeated_style = extracted_styles[0] if extracted_styles else ""
@@ -598,11 +499,15 @@ def extract_po_details(pdf_file):
     has_original_format = any("Colour/Size/Destination:" in line for line in lines) or re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
 
     po_items = []
+    item_dict = {}  # Dictionary to aggregate quantities by size, color, and style
 
     if has_tag_format and not has_original_format:
         # NEW FORMAT HANDLING
         tag_match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", text)
         product_code_used = tag_match.group(1).strip().upper() if tag_match else ""
+        
+        # Replace "-" with space in product code
+        product_code_used = product_code_used.replace("-", " ")
         
         i = 0
         while i < len(lines):
@@ -610,7 +515,8 @@ def extract_po_details(pdf_file):
             item_match = re.match(r'^(\d+)\s+TAG\.PRC\.TKT_.*?(\d+\.\d+)\s+PCS', line)
             if item_match:
                 item_no = item_match.group(1)
-                quantity = int(float(item_match.group(2)))
+                quantity_str = item_match.group(2)
+                quantity = clean_quantity(quantity_str)
                 
                 colour = size = ""
                 for j in range(i + 1, min(i + 5, len(lines))):
@@ -625,20 +531,31 @@ def extract_po_details(pdf_file):
                             size = cs_parts[1].strip().upper()
                         break
                 
-                po_items.append({
-                    "Item_Number": item_no,
-                    "Item_Code": f"TAG_{product_code_used}",
-                    "Quantity": quantity,
-                    "Colour_Code": colour.upper() if colour else "",
-                    "Size": size,
-                    "Style 2": repeated_style,
-                    "Product_Code": product_code_used,
-                })
+                # Create a unique key for size, color and style combination
+                item_key = (size, colour.upper() if colour else "", repeated_style)
+                
+                if item_key in item_dict:
+                    # If we've seen this combination before, add to the quantity
+                    item_dict[item_key]["Quantity"] += quantity
+                else:
+                    # Otherwise create a new entry
+                    item_dict[item_key] = {
+                        "Item_Number": item_no,
+                        "Item_Code": f"TAG_{product_code_used}",
+                        "Quantity": quantity,
+                        "Colour_Code": colour.upper() if colour else "",
+                        "Size": size,
+                        "Style 2": repeated_style,
+                        "Product_Code": product_code_used,
+                    }
             i += 1
     else:
         # ORIGINAL FORMAT HANDLING
         sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
         sup_ref_code = sup_ref_match.group(1).strip().upper() if sup_ref_match else ""
+        
+        # Replace "-" with space in sup ref code
+        sup_ref_code = sup_ref_code.replace("-", " ")
 
         tag_code = ""
         for i, line in enumerate(lines):
@@ -648,15 +565,17 @@ def extract_po_details(pdf_file):
                     match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", second_line)
                     if match:
                         tag_code = match.group(1).strip().upper()
+                        # Replace "-" with space in tag code
+                        tag_code = tag_code.replace("-", " ")
                 break
 
         product_code_used = sup_ref_code if sup_ref_code else tag_code
 
         for i, line in enumerate(lines):
-            item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+(\d+\.\d+)\s+PCS', line)
+            item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+(\d+[\.,]\d+)\s+PCS', line)
             if item_match:
                 item_no, item_code, _, qty_str = item_match.groups()
-                quantity = int(float(qty_str))
+                quantity = clean_quantity(qty_str)
                 colour = size = ""
 
                 for j in range(i + 1, min(i + 10, len(lines))):
@@ -677,16 +596,26 @@ def extract_po_details(pdf_file):
                                 if size_match:
                                     size = size_match.group(1).strip()
 
-                po_items.append({
-                    "Item_Number": item_no,
-                    "Item_Code": item_code,
-                    "Quantity": quantity,
-                    "Colour_Code": (colour or "").strip().upper(),
-                    "Size": (size or "").strip().upper(),
-                    "Style 2": repeated_style,
-                    "Product_Code": product_code_used,
-                })
+                # Create a unique key for size, color and style combination
+                item_key = (size.upper() if size else "", colour.upper() if colour else "", repeated_style)
+                
+                if item_key in item_dict:
+                    # If we've seen this combination before, add to the quantity
+                    item_dict[item_key]["Quantity"] += quantity
+                else:
+                    # Otherwise create a new entry
+                    item_dict[item_key] = {
+                        "Item_Number": item_no,
+                        "Item_Code": item_code,
+                        "Quantity": quantity,
+                        "Colour_Code": (colour or "").strip().upper(),
+                        "Size": (size or "").strip().upper(),
+                        "Style 2": repeated_style,
+                        "Product_Code": product_code_used,
+                    }
 
+    # Convert the dictionary back to a list of items
+    po_items = list(item_dict.values())
     return po_items
 
 def extract_wo_items_table(pdf_file, product_codes=None):
@@ -865,10 +794,117 @@ def compare_codes(po_details, wo_items):
     for code in all_codes:
         in_po = code in po_codes
         in_wo = code in wo_codes
-        status = "✅Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
+        status = "✅ Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
         comparison.append({"PO Code": code if in_po else "", "WO Code": code if in_wo else "", "Status": status})
 
     return comparison
+
+# -------------------- Sidebar Configuration --------------------
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem 0; color: black;">
+        <h2>⚙️ Control Panel</h2>
+        <p style="opacity: 0.8;">Configure your analysis settings</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 🔧 Analysis Method")
+    method = st.selectbox(
+        "Select Matching Algorithm:",
+        ["Enhanced Matching (with PO Color/Size)", "Smart Matching (Exact)", "Smart Matching with Tolerance"],
+        help="Choose the comparison algorithm that best fits your data"
+    )
+    
+    st.markdown("### 📁 File Upload")
+    wo_file = st.file_uploader(
+        "📄 Work Order (WO) PDF", 
+        type="pdf",
+        help="Upload your Work Order PDF file"
+    )
+    
+    po_file = st.file_uploader(
+        "📋 Purchase Order (PO) PDF", 
+        type="pdf",
+        help="Upload your Purchase Order PDF file"
+    )
+    
+    # File status indicators
+    if wo_file:
+        st.success("✅ WO File Loaded")
+    if po_file:
+        st.success("✅ PO File Loaded")
+    
+    if wo_file and po_file:
+        st.markdown("### 🚀 Ready to Process")
+        st.info("Both files are loaded. Analysis will begin automatically.")
+
+# -------------------- Excel/PDF Merger Section --------------------
+with st.expander("📓 PDF Style Number Merger", expanded=False):
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">📊 Excel to PDF Style Extractor</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        excel_file = st.file_uploader(
+            "📤 Upload Excel File", 
+            type=["xls", "xlsx"], 
+            key="excel",
+            help="Upload Excel file containing style numbers"
+        )
+    
+    with col2:
+        pdf_file_merger = st.file_uploader(
+            "📄 Upload PDF File", 
+            type=["pdf"], 
+            key="pdf_merger",
+            help="Upload PDF file to merge with extracted styles"
+        )
+
+    if excel_file and pdf_file_merger:
+        with st.spinner("🔄 Extracting styles and merging..."):
+            styles = extract_styles_from_excel(excel_file)
+
+        if styles:
+            st.markdown("""
+            <div class="alert-success">
+                ✅ <strong>Success!</strong> Style numbers extracted successfully.
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.dataframe(
+                    pd.DataFrame(styles, columns=["📋 Extracted Style Numbers"]), 
+                    use_container_width=True
+                )
+            
+            with col2:
+                styles_pdf = create_styles_pdf(styles)
+                final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
+                
+                st.download_button(
+                    label="⬇️ Download Merged PDF",
+                    data=final_pdf,
+                    file_name="Merged-PO.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+        else:
+            st.markdown("""
+            <div class="alert-warning">
+                ⚠️ <strong>Warning:</strong> No valid style numbers found in the Excel file.
+            </div>
+            """, unsafe_allow_html=True)
+    elif excel_file or pdf_file_merger:
+        st.markdown("""
+        <div class="alert-info">
+            ℹ️ <strong>Info:</strong> Please upload both Excel and PDF files to proceed with merging.
+        </div>
+        """, unsafe_allow_html=True)
 
 # -------------------- Main Analysis Section --------------------
 if wo_file and po_file:
@@ -1011,7 +1047,7 @@ if wo_file and po_file:
     # -------------------- Item Matching Results --------------------
     st.markdown("""
     <div class="section-header">
-        <h3 class="section-title">✅ Successfully Matched Items</h3>
+        <h3 class="section-title">📋 Matching other items</h3>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1035,7 +1071,7 @@ if wo_file and po_file:
 
     # -------------------- Final Status Check --------------------
     address_ok = addr_res.get("Status", "") == "✅ Match"
-    codes_ok = not code_table_df.empty and all(code_table_df["🔍 Match Status"] == "✅ Exact Match")
+    codes_ok = not code_table_df.empty and all(code_table_df["🔍 Match Status"].isin(["✅ Exact Match", "✅ Partial Match"]))
     matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
     matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
     mismatched_empty = len(mismatched) == 0
@@ -1091,8 +1127,6 @@ if wo_file and po_file:
             po_df = pd.DataFrame(po_details)
             st.dataframe(po_df, use_container_width=True, hide_index=True)
 
-
-
 # -------------------- Footer --------------------
 st.markdown("""
 <div class="footer">
@@ -1101,6 +1135,5 @@ st.markdown("""
         Powered by <strong>Razz....</strong> | 
         Advanced PDF Analysis & Comparison Technology
     </p>
-    
 </div>
 """, unsafe_allow_html=True)
