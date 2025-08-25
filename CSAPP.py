@@ -6,6 +6,9 @@ import re
 import pandas as pd
 from io import BytesIO
 from fuzzywuzzy import fuzz
+from datetime import datetime
+import os
+
 # -------------------- UI Configuration --------------------
 st.set_page_config(
     page_title="CS Data Entry Checking Tool – Price Tickets - Razz Solutions",
@@ -13,6 +16,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # -------------------- Custom CSS --------------------
 st.markdown("""
 <style>
@@ -226,6 +230,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 # -------------------- Main Header --------------------
 st.markdown("""
 <div class="main-header">
@@ -233,11 +238,100 @@ st.markdown("""
     <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz </p>
 </div>
 """, unsafe_allow_html=True)
+
+# -------------------- Function to log to Excel --------------------
+def log_to_excel(username, wo_product_codes, style_numbers, match_status):
+    """Log analysis results to Excel file - one row per product code"""
+    try:
+        # Define the path to the Excel file
+        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\analysis_reports.xlsx"
+        
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(excel_path), exist_ok=True)
+        
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Prepare the row data - one row per product code
+        rows_to_insert = []
+        for product_code in wo_product_codes:
+            rows_to_insert.append([
+                timestamp,
+                username,
+                product_code,
+                ', '.join(style_numbers),
+                match_status
+            ])
+        
+        # Check if the file exists
+        if os.path.exists(excel_path):
+            # Load the existing workbook
+            wb = openpyxl.load_workbook(excel_path)
+            ws = wb.active
+        else:
+            # Create a new workbook
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            # Write header
+            ws.append(["Timestamp", "Username", "Product Code", "Style Numbers", "Match Status"])
+        
+        # Append the rows
+        for row in rows_to_insert:
+            ws.append(row)
+        
+        # Save the workbook
+        wb.save(excel_path)
+        
+        return True, f"Report successfully logged to Excel ({len(rows_to_insert)} rows added)"
+    except Exception as e:
+        return False, f"Error logging to Excel: {e}"
+
+# -------------------- Function to View Excel Data --------------------
+def view_excel_data():
+    """View data from the Excel file"""
+    try:
+        # Define the path to the Excel file
+        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\analysis_reports.xlsx"
+        
+        # Check if the file exists
+        if os.path.exists(excel_path):
+            # Read the Excel file
+            df = pd.read_excel(excel_path)
+            return df
+        else:
+            return pd.DataFrame(columns=["Timestamp", "Username", "Product Code", "Style Numbers", "Match Status"])
+    except Exception as e:
+        st.error(f"Error reading Excel file: {e}")
+        return pd.DataFrame()
+
+# -------------------- User Selection --------------------
+with st.sidebar:
+    st.markdown("### 👤 User Selection")
+    selected_user = st.selectbox(
+        "Select your name:",
+        ["", "saman", "kasun", "gayan", "nipun", "udara"],
+        help="You must select a user to access the application"
+    )
+    
+    if not selected_user:
+        st.warning("⚠️ Please select a user to continue")
+    
+    # Excel management section
+    st.markdown("### 📊 Excel Management")
+    if st.button("View All Data"):
+        data_df = view_excel_data()
+        if not data_df.empty:
+            st.dataframe(data_df, use_container_width=True)
+        else:
+            st.info("No data available in the Excel file")
+
 # -------------------- Progress Steps --------------------
 def show_progress_steps(current_step=1):
     return ""
+
 # -------------------- Pattern --------------------
 style_pattern = re.compile(r"^\d{8}$")
+
 # -------------------- Excel Reader --------------------
 def extract_styles_from_excel(file) -> list:
     try:
@@ -270,6 +364,7 @@ def extract_styles_from_excel(file) -> list:
     except Exception as e:
         st.error(f"❌ Error reading Excel file: {e}")
         return []
+
 # -------------------- Style to PDF --------------------
 def create_styles_pdf(styles: list) -> BytesIO:
     doc = fitz.open()
@@ -282,6 +377,7 @@ def create_styles_pdf(styles: list) -> BytesIO:
     doc.save(buf)
     buf.seek(0)
     return buf
+
 # -------------------- Merge PDF --------------------
 def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out = fitz.open()
@@ -295,6 +391,7 @@ def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out.save(output)
     output.seek(0)
     return output
+
 # -------------------- Missing Function: Extract Style Numbers from PO First Page --------------------
 def extract_style_numbers_from_po_first_page(pdf_file):
     """Extract style numbers from the first page of PO PDF"""
@@ -316,6 +413,7 @@ def extract_style_numbers_from_po_first_page(pdf_file):
     except Exception as e:
         st.error(f"Error extracting style numbers from PO: {e}")
         return []
+
 # -------------------- Helper Functions --------------------
 def clean_quantity(qty_str):
     """Convert strings like '1,148.00' or '465.00' into integers"""
@@ -328,9 +426,24 @@ def clean_quantity(qty_str):
         return int(qty_str)
     except ValueError:
         return 0
+
 def truncate_after_sri_lanka(addr: str) -> str:
+    """
+    Extract the address up to and including "Sri Lanka" or "India"
+    """
+    # First try to find "Sri Lanka"
     part, sep, _ = addr.partition("Sri Lanka")
-    return (part + sep).strip() if sep else addr.strip()
+    if sep:
+        return (part + sep).strip()
+    
+    # If "Sri Lanka" not found, try to find "India"
+    part, sep, _ = addr.partition("India")
+    if sep:
+        return (part + sep).strip()
+    
+    # If neither found, return the original address
+    return addr.strip()
+
 def clean_size(size_str):
     """Extract only the primary size from strings like 'S | P' or 'M / M'"""
     if not size_str:
@@ -343,16 +456,38 @@ def clean_size(size_str):
     elif "/" in size_str:
         return size_str.split("/")[0].strip()
     return size_str
+
 def extract_wo_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    customer = delivery = ""
+    delivery = ""
     lines = text.split("\n")
     for i, ln in enumerate(lines):
         if "Deliver To:" in ln:
-            customer = lines[i - 1].strip() if i > 0 else ""
-            delivery = re.sub(r"Deliver To:\s*", "", ln).strip()
+            # If there's a line before "Deliver To:", check if it might be part of the address
+            if i > 0:
+                prev_line = lines[i-1].strip()
+                # Check if the previous line looks like part of an address (not just a name)
+                # If it contains numbers, street indicators, or is longer than a typical name
+                if (any(char.isdigit() for char in prev_line) or 
+                    any(indicator in prev_line.lower() for indicator in 
+                        ["street", "st", "road", "rd", "avenue", "ave", "building", "block", "no", "#"]) or
+                    len(prev_line.split()) > 3):  # More than 3 words suggests it's an address part
+                    # Combine the previous line with the current address line
+                    combined = prev_line + " " + re.sub(r"Deliver To:\s*", "", ln).strip()
+                    delivery = truncate_after_sri_lanka(combined)
+                else:
+                    # Previous line is likely just a name, so skip it
+                    delivery = truncate_after_sri_lanka(re.sub(r"Deliver To:\s*", "", ln).strip())
+            else:
+                # No previous line, just extract the address
+                delivery = truncate_after_sri_lanka(re.sub(r"Deliver To:\s*", "", ln).strip())
             break
+    
+    # Remove "Customer Delivery Name:" if it exists in the address
+    if "Customer Delivery Name:" in delivery:
+        delivery = re.sub(r"Customer Delivery Name:\s*", "", delivery).strip()
+    
     codes = []
     for line in lines:
         if "Product Code" in line:
@@ -367,13 +502,16 @@ def extract_wo_fields(pdf_file):
                     if clean:
                         codes.append(clean)
             break
+    
     po_numbers = list(set(re.findall(r'\b\d{7,8}\b', text)))
+    
     return {
-        "customer_name": customer,
+        "customer_name": "",  # Empty as requested
         "delivery_address": delivery,
         "product_codes": list(set(codes)),
         "po_numbers": po_numbers
     }
+    
 def extract_po_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
@@ -415,6 +553,7 @@ def extract_po_fields(pdf_file):
         "product_codes": po_codes + all_product_codes,
         "all_found_addresses": seen
     }
+
 def extract_style_numbers(po_pdf_path):
     style_numbers = set()
     with pdfplumber.open(po_pdf_path) as pdf:
@@ -449,12 +588,14 @@ def extract_style_numbers(po_pdf_path):
                 extracted_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', extracted_section_match.group(1))
                 style_numbers.update([s.strip() for s in extracted_styles])
     return list(style_numbers)
+
 def reorder_wo_by_size(wo_items):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
     def get_order(wo):
         size = wo.get("Size 1", "").strip().upper()
         return size_order.get(size, 99)
     return sorted(wo_items, key=get_order)
+
 def reorder_po_by_size(po_details):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
    
@@ -463,6 +604,7 @@ def reorder_po_by_size(po_details):
         return size_order.get(size, 99)
    
     return sorted(po_details, key=get_order)
+
 def sort_items_by_size(items):
     """Sort matched or mismatched items by size from smallest to largest"""
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
@@ -473,6 +615,7 @@ def sort_items_by_size(items):
         return size_order.get(size, 99)  # Default to 99 if size not found
     
     return sorted(items, key=get_size_key)
+
 def extract_po_details(pdf_file):
     """Enhanced function to handle multiple PO formats with quantity aggregation"""
     pdf_file.seek(0)
@@ -588,16 +731,18 @@ def extract_po_details(pdf_file):
                     }
     po_items = list(item_dict.values())
     return po_items
+
 # -------------------- UPDATED WO Extraction Function --------------------
 def extract_wo_items_table(pdf_file, product_codes=None):
     """
     Enhanced function to extract WO items from Victoria's Secret price ticket tables
-    with improved table detection and data extraction
+    with improved table detection and data extraction for all formats
     """
     items = []
+    
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # Try to extract tables with different settings
+            # First, try to extract tables with standard settings
             tables = page.extract_tables()
             
             # If standard extraction doesn't work well, try with explicit settings
@@ -633,34 +778,28 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                         if "Number of Size Changes" in line or "End of Works Order" in line:
                             break
                             
-                        # Try to extract data using regex
-                        # Pattern: Style, Colour Code, Size 1, Size 2, Panty Length, Retail US, Retail CA, Multi Price, SKU, Article, Quantity
-                        pattern = r'(\d{8})\s+([A-Z0-9]+)\s+([A-Z]{1,3})\s*[|/]\s*([A-Z]{1,3})\s+.*?\$[\d.]+\s+\$[\d.]+\s+.*?\s+(\d+)\s+(\d+)\s+(\d+)'
+                        # Try to extract data using regex - more flexible pattern
+                        # This pattern is designed to capture all variations of sizes including XS, XL, XXL
+                        pattern = r'(\d{8})\s+([A-Z0-9]+)\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)'
                         match = re.search(pattern, line)
                         
                         if match:
                             style = match.group(1)
                             color_code = match.group(2)
-                            size1_raw = match.group(3)
-                            size2_raw = match.group(4)
-                            sku = match.group(5)
-                            article = match.group(6)
-                            quantity = match.group(7)
+                            size1 = match.group(3)
+                            quantity_str = match.group(4).replace(',', '')
                             
-                            # Clean sizes
-                            size1 = clean_size(size1_raw)
-                            size2 = clean_size(size2_raw)
-                            
-                            items.append({
-                                "Style": style,
-                                "WO Colour Code": color_code.upper(),
-                                "Size 1": size1,
-                                "Size 2": size2,
-                                "Quantity": int(quantity),
-                                "SKU": sku,
-                                "Article": article,
-                                "WO Product Code": " / ".join(product_codes) if product_codes else ""
-                            })
+                            try:
+                                quantity = int(quantity_str)
+                                items.append({
+                                    "Style": style,
+                                    "WO Colour Code": color_code.upper(),
+                                    "Size 1": size1,
+                                    "Quantity": quantity,
+                                    "WO Product Code": " / ".join(product_codes) if product_codes else ""
+                                })
+                            except ValueError:
+                                continue
             
             # Process tables if found
             for table in tables:
@@ -756,7 +895,7 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                         style = str(row[column_positions.get("style", 0)] or "").strip()
                         color_code = str(row[column_positions.get("color_code", 1)] or "").strip().upper()
                         
-                        # Extract and clean size1
+                        # Extract and clean size1 - with enhanced detection for all sizes
                         size1_raw = str(row[column_positions.get("size1", 2)] or "").strip()
                         size1 = clean_size(size1_raw)
                         
@@ -764,7 +903,8 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                         if not size1:
                             for cell in row:
                                 cell_str = str(cell).strip().upper()
-                                size_match = re.search(r'\b(XS|S|M|L|XL|XXL)\b', cell_str)
+                                # Enhanced regex to capture all size variations
+                                size_match = re.search(r'\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b', cell_str)
                                 if size_match:
                                     size1 = size_match.group(1)
                                     break
@@ -822,44 +962,30 @@ def extract_wo_items_table(pdf_file, product_codes=None):
         
         # Try multiple patterns to capture different table formats
         patterns = [
-            # Pattern 1: Standard format with pipes
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+([A-Z]{1,3})\s*[|/]\s*([A-Z]{1,3})\s+.*?\$[\d.]+\s+\$[\d.]+\s+.*?\s+(\d+)\s+(\d+)\s+(\d+)',
+            # Pattern 1: Standard format with pipes - enhanced to capture all sizes
+            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
             # Pattern 2: Format without pipes but with clear column separation
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+([A-Z]{1,3})\s+([A-Z]{1,3})\s+.*?\$[\d.]+\s+\$[\d.]+\s+.*?\s+(\d+)\s+(\d+)\s+(\d+)',
+            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
             # Pattern 3: More flexible pattern for variations
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+([A-Z]{1,3})(?:\s*[|/]\s*([A-Z]{1,3}))?\s+.*?\$[\d.]+(?:\s+\$[\d.]+)?\s+.*?\s+(\d+)\s+(\d+)\s+(\d+)',
+            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
         ]
         
         for pattern in patterns:
             matches = re.findall(pattern, full_text)
             if matches:
                 for match in matches:
-                    if len(match) == 7:  # Pattern with size2
-                        style_num, color_code, size, size2, sku, article, quantity = match
-                        clean_size_val = clean_size(size)
-                        clean_size2_val = clean_size(size2) if size2 else ""
+                    style_num, color_code, size, quantity = match
+                    quantity = quantity.replace(',', '')
+                    try:
                         items.append({
                             "Style": style_num,
                             "WO Colour Code": color_code.upper(),
-                            "Size 1": clean_size_val,
-                            "Size 2": clean_size2_val,
+                            "Size 1": size,
                             "Quantity": int(quantity),
-                            "SKU": sku,
-                            "Article": article,
                             "WO Product Code": " / ".join(product_codes) if product_codes else ""
                         })
-                    elif len(match) == 6:  # Pattern without size2
-                        style_num, color_code, size, sku, article, quantity = match
-                        clean_size_val = clean_size(size)
-                        items.append({
-                            "Style": style_num,
-                            "WO Colour Code": color_code.upper(),
-                            "Size 1": clean_size_val,
-                            "Quantity": int(quantity),
-                            "SKU": sku,
-                            "Article": article,
-                            "WO Product Code": " / ".join(product_codes) if product_codes else ""
-                        })
+                    except ValueError:
+                        continue
                 break  # Stop after first successful pattern match
     
     # Remove duplicates while preserving order
@@ -873,8 +999,8 @@ def extract_wo_items_table(pdf_file, product_codes=None):
     
     return unique_items
 
-
 SIZES = {"XS", "S", "M", "L", "XL", "XXL", "XP", "P", "G", "XG"}
+
 def _extract_qty_from_text(text, min_value=10, max_value=100000):
     """
     Find the most plausible quantity in a text cell.
@@ -900,6 +1026,7 @@ def _extract_qty_from_text(text, min_value=10, max_value=100000):
         except ValueError:
             continue
     return best
+
 def _dedupe(items):
     """Remove duplicates while preserving order."""
     seen = set()
@@ -911,6 +1038,7 @@ def _dedupe(items):
         seen.add(key)
         unique.append(it)
     return unique
+
 def extract_wo_items_table_enhanced(pdf_file, product_codes=None):
     """
     Keep the same API as your 'enhanced' version. Uses the same logic above.
@@ -1019,12 +1147,14 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
     mismatched = sort_items_by_size(mismatched)
     
     return matched, mismatched
+
 def compare_addresses(wo, po):
     ns = fuzz.token_sort_ratio(wo["customer_name"], po["delivery_location"])
     as_ = fuzz.token_sort_ratio(wo["delivery_address"], po["delivery_location"])
     comb = max(ns, as_)
     return {"WO Name": wo["customer_name"], "WO Addr": wo["delivery_address"], "PO Addr": po["delivery_location"],
             "Name %": ns, "Addr %": as_, "Overall %": comb, "Status": "✅ Match" if comb > 85 else "⚠️ Review"}
+
 def compare_codes(po_details, wo_items):
     # Handle PO codes - ensure they are strings before processing
     po_codes = set()
@@ -1068,6 +1198,7 @@ def compare_codes(po_details, wo_items):
         status = "✅ Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
         comparison.append({"PO Code": code if in_po else "", "WO Code": code if in_wo else "", "Status": status})
     return comparison
+
 # -------------------- Sidebar Configuration --------------------
 with st.sidebar:
     st.markdown("""
@@ -1088,12 +1219,14 @@ with st.sidebar:
     wo_file = st.file_uploader(
         "📄 Work Order (WO) PDF", 
         type="pdf",
+        disabled=not selected_user,
         help="Upload your Work Order PDF file"
     )
     
     po_file = st.file_uploader(
         "📋 Purchase Order (PO) PDF", 
         type="pdf",
+        disabled=not selected_user,
         help="Upload your Purchase Order PDF file"
     )
     
@@ -1106,6 +1239,7 @@ with st.sidebar:
     if wo_file and po_file:
         st.markdown("### 🚀 Ready to Process")
         st.info("Both files are loaded. Analysis will begin automatically.")
+
 # -------------------- Excel/PDF Merger Section --------------------
 with st.expander("📓 PDF Style Number Merger", expanded=False):
     st.markdown("""
@@ -1121,6 +1255,7 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
             "📤 Upload Excel File", 
             type=["xls", "xlsx"], 
             key="excel",
+            disabled=not selected_user,
             help="Upload Excel file containing style numbers"
         )
     
@@ -1129,6 +1264,7 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
             "📄 Upload PDF File", 
             type=["pdf"], 
             key="pdf_merger",
+            disabled=not selected_user,
             help="Upload PDF file to merge with extracted styles"
         )
     if excel_file and pdf_file_merger:
@@ -1171,8 +1307,9 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
             ℹ️ <strong>Info:</strong> Please upload both Excel and PDF files to proceed with merging.
         </div>
         """, unsafe_allow_html=True)
+
 # -------------------- Main Analysis Section --------------------
-if wo_file and po_file:
+if selected_user and wo_file and po_file:
     # Show progress
     st.markdown(show_progress_steps(2), unsafe_allow_html=True)
     
@@ -1189,6 +1326,7 @@ if wo_file and po_file:
             matched, mismatched = enhanced_quantity_matching(wo_items, po_details)
         else:
             matched, mismatched = [], []
+    
     # Show completion
     st.markdown(show_progress_steps(4), unsafe_allow_html=True)
     
@@ -1198,6 +1336,7 @@ if wo_file and po_file:
         🎉 <strong>Analysis Complete!</strong> Your files have been processed successfully.
     </div>
     """, unsafe_allow_html=True)
+    
     # -------------------- Key Metrics Dashboard --------------------
     st.markdown("""
     <div class="section-header">
@@ -1241,6 +1380,7 @@ if wo_file and po_file:
             <div class="metric-label">Mismatches</div>
         </div>
         """, unsafe_allow_html=True)
+    
     # -------------------- Address Comparison --------------------
     st.markdown("""
     <div class="section-header">
@@ -1263,6 +1403,7 @@ if wo_file and po_file:
             ⚠️ <strong>Address Review Required:</strong> Please verify the delivery addresses manually.
         </div>
         """, unsafe_allow_html=True)
+    
     # -------------------- Product Code Comparison --------------------
     st.markdown("""
     <div class="section-header">
@@ -1295,6 +1436,7 @@ if wo_file and po_file:
         })
     code_table_df = pd.DataFrame(comparison_rows)
     st.dataframe(code_table_df, use_container_width=True, hide_index=True)
+    
     # -------------------- Item Matching Results --------------------
     st.markdown("""
     <div class="section-header">
@@ -1318,25 +1460,78 @@ if wo_file and po_file:
             ℹ️ <strong>No Matches Found:</strong> No items were matched with the current algorithm. Try adjusting the matching method.
         </div>
         """, unsafe_allow_html=True)
+    
     # -------------------- Final Status Check --------------------
     address_ok = addr_res.get("Status", "") == "✅ Match"
     codes_ok = not code_table_df.empty and all(code_table_df["🔍 Match Status"].isin(["✅ Exact Match", "✅ Partial Match"]))
     matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
     matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
     mismatched_empty = len(mismatched) == 0
+    
+    # Determine match status
     if address_ok and codes_ok and matched_ok and mismatched_empty:
+        match_status = "PERFECT MATCH!"
+        # Play success sound
+        st.markdown("""
+        <audio autoplay>
+            <source src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" type="audio/mpeg">
+        </audio>
+        """, unsafe_allow_html=True)
+        
         st.markdown("""
         <div class="alert-success" style="text-align: center; font-size: 1.2rem;">
             🎉 <strong>PERFECT MATCH!</strong> All verification checks passed successfully! 🎉
         </div>
         """, unsafe_allow_html=True)
+        
+        st.balloons()
         st.balloons()
     else:
+        match_status = "NOT PERFECT"
         st.markdown("""
         <div class="alert-warning">
             ⚠️ <strong>Review Required:</strong> Some data points need manual verification. Check the details below.
         </div>
         """, unsafe_allow_html=True)
+    
+    # -------------------- Report Generation --------------------
+    # Collect data for reporting
+    wo_product_codes = []
+    for item in wo_items:
+        code = item.get("WO Product Code", "")
+        if code:
+            # Handle case where code might be a list
+            if isinstance(code, list):
+                for c in code:
+                    if c and c.strip():
+                        wo_product_codes.append(c.strip().upper())
+            elif code.strip():
+                wo_product_codes.append(code.strip().upper())
+    
+    style_numbers = []
+    # Add style numbers from PO
+    extracted_styles = extract_style_numbers_from_po_first_page(po_file)
+    if extracted_styles:
+        style_numbers.extend(extracted_styles)
+    # Add style numbers from WO
+    for item in wo_items:
+        style = item.get("Style", "")
+        if style and style not in style_numbers:
+            style_numbers.append(style)
+    # Add style numbers from PO details
+    for item in po_details:
+        style = item.get("Style 2", "")
+        if style and style not in style_numbers:
+            style_numbers.append(style)
+    
+    # Log to Excel
+    with st.spinner("📊 Logging report to Excel..."):
+        success, message = log_to_excel(selected_user, wo_product_codes, style_numbers, match_status)
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
+    
     # -------------------- Mismatched Items --------------------
     st.markdown("""
     <div class="section-header">
@@ -1358,6 +1553,7 @@ if wo_file and po_file:
             ✅ <strong>No Mismatches!</strong> All items have been successfully matched.
         </div>
         """, unsafe_allow_html=True)
+    
     # -------------------- Detailed Data Tables --------------------
     with st.expander("📊 Detailed Data Tables", expanded=False):
         col1, col2 = st.columns(2)
@@ -1371,6 +1567,7 @@ if wo_file and po_file:
             st.markdown("### 📋 Purchase Order (PO) Items")
             po_df = pd.DataFrame(po_details)
             st.dataframe(po_df, use_container_width=True, hide_index=True)
+
 # -------------------- Footer --------------------
 st.markdown("""
 <div class="footer">
