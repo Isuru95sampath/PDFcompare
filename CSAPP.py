@@ -240,11 +240,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- Function to log to Excel --------------------
-def log_to_excel(username, wo_product_codes, style_numbers, match_status):
-    """Log analysis results to Excel file - one row per product code"""
+def log_to_excel(username, product_code, style_number, match_status):
+    """Log analysis results to Excel file - one row per analysis"""
     try:
         # Define the path to the Excel file
-        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\analysis_reports.xlsx"
+        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\CS-AI tool report.xlsx"
         
         # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(excel_path), exist_ok=True)
@@ -252,16 +252,14 @@ def log_to_excel(username, wo_product_codes, style_numbers, match_status):
         # Get current timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Prepare the row data - one row per product code
-        rows_to_insert = []
-        for product_code in wo_product_codes:
-            rows_to_insert.append([
-                timestamp,
-                username,
-                product_code,
-                ', '.join(style_numbers),
-                match_status
-            ])
+        # Prepare the row data - one row per analysis
+        row_to_insert = [
+            timestamp,
+            username,
+            product_code,
+            style_number,
+            match_status
+        ]
         
         # Check if the file exists
         if os.path.exists(excel_path):
@@ -273,16 +271,15 @@ def log_to_excel(username, wo_product_codes, style_numbers, match_status):
             wb = openpyxl.Workbook()
             ws = wb.active
             # Write header
-            ws.append(["Timestamp", "Username", "Product Code", "Style Numbers", "Match Status"])
+            ws.append(["Timestamp", "Username", "Product Code", "Style Number", "Match Status"])
         
-        # Append the rows
-        for row in rows_to_insert:
-            ws.append(row)
+        # Append the row
+        ws.append(row_to_insert)
         
         # Save the workbook
         wb.save(excel_path)
         
-        return True, f"Report successfully logged to Excel ({len(rows_to_insert)} rows added)"
+        return True, "Report successfully logged to Excel"
     except Exception as e:
         return False, f"Error logging to Excel: {e}"
 
@@ -291,7 +288,7 @@ def view_excel_data():
     """View data from the Excel file"""
     try:
         # Define the path to the Excel file
-        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\analysis_reports.xlsx"
+        excel_path = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\CS-AI tool report.xlsx"
         
         # Check if the file exists
         if os.path.exists(excel_path):
@@ -299,7 +296,7 @@ def view_excel_data():
             df = pd.read_excel(excel_path)
             return df
         else:
-            return pd.DataFrame(columns=["Timestamp", "Username", "Product Code", "Style Numbers", "Match Status"])
+            return pd.DataFrame(columns=["Timestamp", "Username", "Product Code", "Style Number", "Match Status"])
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
@@ -1494,8 +1491,8 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Report Generation --------------------
-    # Collect data for reporting
+    # -------------------- Collect Data for Excel Logging --------------------
+    # Collect product codes
     wo_product_codes = []
     for item in wo_items:
         code = item.get("WO Product Code", "")
@@ -1508,6 +1505,7 @@ if selected_user and wo_file and po_file:
             elif code.strip():
                 wo_product_codes.append(code.strip().upper())
     
+    # Collect style numbers
     style_numbers = []
     # Add style numbers from PO
     extracted_styles = extract_style_numbers_from_po_first_page(po_file)
@@ -1524,9 +1522,13 @@ if selected_user and wo_file and po_file:
         if style and style not in style_numbers:
             style_numbers.append(style)
     
-    # Log to Excel
+    # Get first product code and first style number
+    first_product_code = wo_product_codes[0] if wo_product_codes else ""
+    first_style_number = style_numbers[0] if style_numbers else ""
+    
+    # Auto-log to Excel when files are uploaded
     with st.spinner("📊 Logging report to Excel..."):
-        success, message = log_to_excel(selected_user, wo_product_codes, style_numbers, match_status)
+        success, message = log_to_excel(selected_user, first_product_code, first_style_number, match_status)
         if success:
             st.success(message)
         else:
