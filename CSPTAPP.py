@@ -8,13 +8,15 @@ from io import BytesIO
 from fuzzywuzzy import fuzz
 from datetime import datetime
 import os
+
 # -------------------- UI Configuration --------------------
 st.set_page_config(
-    page_title="CS Data Entry Checking Tool – Price Tickets - Razz Solutions",
+    page_title="Bandix Data Entry Checking Tool – Price Tickets - Razz Solutions",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # -------------------- Custom CSS --------------------
 st.markdown("""
 <style>
@@ -247,7 +249,6 @@ st.markdown("""
     }
     
     /* PIN Input Styling */
-        /* PIN Input Styling */
     .pin-container {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 10px;
@@ -269,23 +270,24 @@ st.markdown("""
         padding: 1rem;
         margin-top: 1rem;
         border: 1px solid rgba(255, 255, 255, 0.2);
-    
     }
 </style>
 """, unsafe_allow_html=True)
+
 # -------------------- Main Header --------------------
 st.markdown("""
 <div class="main-header">
-    <h1 class="main-title">🚀 CS Data Entry Checking Tool – Price Tickets</h1>
+    <h1 class="main-title">🚀 Brandix Data Entry Checking Tool – Price Tickets</h1>
     <p class="main-subtitle">Advanced PO vs WO Comparison Dashboard | Powered by Razz </p>
 </div>
 """, unsafe_allow_html=True)
+
 # -------------------- Function to log to Text File --------------------
 def log_to_text(username, product_code, references, match_status, po_number=""):
     """Log analysis results to a daily text file"""
     try:
         # Define the directory for text files
-        log_dir = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\CS_AI_Tool_Logs"
+        log_dir = r"C:\Users\APP\Desktop\ITL\CSAPP_Logs"
         
         # Create the directory if it doesn't exist
         os.makedirs(log_dir, exist_ok=True)
@@ -313,7 +315,7 @@ def read_log_file_and_convert_to_excel(date_str):
     """Read a log file by date and convert to Excel with separate date and time columns"""
     try:
         # Define the directory for text files
-        log_dir = r"C:\Users\Pcadmin\Documents\ITL\PriceTicket\CS_AI_Tool_Logs"
+        log_dir = r"C:\Users\APP\Desktop\ITL\CSAPP_Logs"
         file_path = os.path.join(log_dir, f"{date_str}.txt")
         
         # Check if the file exists
@@ -360,6 +362,214 @@ def read_log_file_and_convert_to_excel(date_str):
         return output, f"Successfully converted log file for {date_str}"
     except Exception as e:
         return None, f"Error converting log file: {e}"
+
+# -------------------- Excel Table Extraction Functions --------------------
+def read_excel_table(excel_file):
+    """Read tables from all sheets of an Excel file starting from A22, with specific stopping conditions"""
+    try:
+        all_sheets_data = []
+        
+        if excel_file.name.endswith(".xls"):
+            xl_file = pd.ExcelFile(excel_file, engine='xlrd')
+            sheet_names = xl_file.sheet_names
+        else:
+            xl_file = pd.ExcelFile(excel_file)
+            sheet_names = xl_file.sheet_names
+        
+        for sheet_name in sheet_names:
+            # Initialize variables
+            qty_col_idx = None
+            skip_rows = [22]  # Always skip row 23 (index 22)
+            
+            # Read the entire sheet first to check for stopping conditions
+            df_full = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+            
+            # Check if header row (row 22) contains the stopping text
+            header_has_stopping_text = False
+            for cell in df_full.iloc[21]:  # Row 22 (0-indexed)
+                if isinstance(cell, str) and "Ticket quantities will be rounded up in minimums and multiples of 100 pcs." in cell:
+                    header_has_stopping_text = True
+                    break
+            
+            if header_has_stopping_text:
+                # Skip the entire sheet if header contains stopping text
+                all_sheets_data.append({
+                    'sheet_name': sheet_name, 
+                    'data': pd.DataFrame(),  # Empty DataFrame
+                    'style_number': None,
+                    'stop_row': 21,  # Row 22
+                    'qty_col_idx': None
+                })
+                continue
+            
+            # Find all rows (starting from row 22) that contain the stopping text
+            stopping_rows = []
+            for idx in range(21, len(df_full)):  # Start from row 22 (0-indexed)
+                for cell in df_full.iloc[idx]:
+                    if isinstance(cell, str) and "Ticket quantities will be rounded up in minimums and multiples of 100 pcs." in cell:
+                        stopping_rows.append(idx)
+                        break
+            
+            # Add all stopping rows to skip list
+            skip_rows.extend(stopping_rows)
+            
+            # Find the QTY column in the header row (row 22)
+            if len(df_full) > 21:  # Make sure we have at least 22 rows
+                header_row = df_full.iloc[21]  # Row 22 (0-indexed)
+                for idx, cell in enumerate(header_row):
+                    if isinstance(cell, str) and "QTY" in cell.upper():
+                        qty_col_idx = idx
+                        break
+            
+            # Read the data with header at row 22, skipping specified rows
+            usecols = range(qty_col_idx + 1) if qty_col_idx is not None else None
+            df = pd.read_excel(
+                excel_file, 
+                sheet_name=sheet_name, 
+                header=21,  # Row 22 is header
+                skiprows=skip_rows,  # Skip row 23 and any row with stopping text
+                usecols=usecols
+            )
+            
+            # Remove unnamed columns (columns with "Unnamed" in the header)
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            
+            # Clean the data
+            df = df.dropna(how='all').dropna(axis=1, how='all').reset_index(drop=True)
+            
+            # Find the first blank row in the STYLE column and truncate
+            if 'STYLE' in df.columns:
+                # Find the first index where STYLE is blank or NaN
+                blank_style_idx = None
+                for idx, style_val in enumerate(df['STYLE']):
+                    if pd.isna(style_val) or str(style_val).strip() == '':
+                        blank_style_idx = idx
+                        break
+                
+                # Truncate the DataFrame at the first blank STYLE
+                if blank_style_idx is not None:
+                    df = df.iloc[:blank_style_idx].reset_index(drop=True)
+            
+            # Extract style number
+            style_number = None
+            if not df.empty and 'STYLE' in df.columns:
+                style_values = df['STYLE'].dropna().values
+                if len(style_values) > 0:
+                    style_number = str(style_values[0]).strip()
+            
+            # Determine the first stopping row for display
+            first_stop_row = min(stopping_rows) if stopping_rows else None
+            
+            # Always add the sheet info with all required keys
+            all_sheets_data.append({
+                'sheet_name': sheet_name, 
+                'data': df, 
+                'style_number': style_number,
+                'stop_row': first_stop_row,
+                'qty_col_idx': qty_col_idx
+            })
+        
+        return all_sheets_data
+    except Exception as e:
+        st.error(f"Error reading Excel file: {str(e)}")
+        return []
+
+def process_excel_table_data(all_table_data):
+    """Process Excel table data into a single table format"""
+    try:
+        all_excel_items = []
+        
+        for table_info in all_table_data:
+            excel_df = table_info['data']
+            excel_sheet = table_info['sheet_name']
+            
+            if excel_df.empty:
+                continue
+            
+            excel_columns = list(excel_df.columns)
+            column_mapping = {}
+            
+            for col in excel_columns:
+                col_lower = str(col).lower()
+                if 'style' in col_lower:
+                    column_mapping['Style'] = col
+                elif 'cc' in col_lower or 'color' in col_lower or 'colour' in col_lower:
+                    column_mapping['Colour Code'] = col
+                elif 'size' in col_lower:
+                    column_mapping['Size'] = col
+                elif 'qty' in col_lower or 'quantity' in col_lower:
+                    column_mapping['Quantity'] = col
+                elif 'retail' in col_lower and 'us' in col_lower:
+                    column_mapping['Retail US'] = col
+                elif 'retail' in col_lower and 'ca' in col_lower:
+                    column_mapping['Retail CA'] = col
+                elif 'sku' in col_lower:
+                    column_mapping['SKU'] = col
+                elif 'article' in col_lower:
+                    column_mapping['Article'] = col
+            
+            for _, row in excel_df.iterrows():
+                excel_item = {}
+                
+                for std_col, excel_col in column_mapping.items():
+                    if excel_col in excel_df.columns:
+                        value = row[excel_col]
+                        if pd.notna(value):
+                            if 'size' in std_col.lower():
+                                value = convert_excel_size_codes(value)
+                            excel_item[std_col] = str(value).strip()
+                        else:
+                            excel_item[std_col] = ""
+                    else:
+                        excel_item[std_col] = ""
+                
+                for col in excel_columns:
+                    if col not in column_mapping.values():
+                        value = row[col]
+                        if pd.notna(value):
+                            excel_item[f"Excel {col}"] = str(value).strip()
+                        else:
+                            excel_item[f"Excel {col}"] = ""
+                
+                all_excel_items.append(excel_item)
+        
+        excel_data_df = pd.DataFrame(all_excel_items)
+        
+        if not excel_data_df.empty:
+            excel_data_df = excel_data_df.replace("", float("nan"))
+            excel_data_df = excel_data_df.dropna(axis=1, how='all')
+            excel_data_df = excel_data_df.fillna("")
+            
+            if 'Size' in excel_data_df.columns:
+                size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
+                excel_data_df["Size_Order"] = excel_data_df["Size"].map(
+                    lambda x: size_order.get(str(x).strip().upper(), 99)
+                )
+                excel_data_df = excel_data_df.sort_values("Size_Order").drop("Size_Order", axis=1)
+            
+            excel_data_df = excel_data_df.reset_index(drop=True)
+        
+        return excel_data_df
+        
+    except Exception as e:
+        st.error(f"Error processing Excel table data: {str(e)}")
+        return pd.DataFrame()
+
+def convert_excel_size_codes(size_value):
+    """Convert numeric size codes from Excel to text sizes"""
+    if pd.isna(size_value):
+        return ""
+    
+    size_str = str(size_value).strip()
+    if size_str.isdigit():
+        size_code = int(size_str)
+        size_mapping = {
+            33901: "XS", 33902: "S", 33903: "M", 
+            33904: "L", 33905: "XL", 33906: "XXL"
+        }
+        return size_mapping.get(size_code, size_str)
+    return size_str
+
 # -------------------- User Selection --------------------
 with st.sidebar:
     st.markdown("### ⭐ User Selection")
@@ -415,43 +625,14 @@ with st.sidebar:
                 st.error(message)
     elif pin_input:
         st.error("❌ Incorrect PIN. Please try again.")
+
 # -------------------- Progress Steps --------------------
 def show_progress_steps(current_step=1):
     return ""
+
 # -------------------- Pattern --------------------
 style_pattern = re.compile(r"^\d{8}$")
-# -------------------- Excel Reader --------------------
-def extract_styles_from_excel(file) -> list:
-    try:
-        if file.name.endswith(".xls"):
-            df = pd.read_excel(file, sheet_name=0, header=None, engine="xlrd")
-            for i in range(23, len(df)):
-                val = df.iloc[i, 1]
-                val_str = str(val).strip() if val is not None else ""
-                if not val_str:
-                    break
-                if style_pattern.match(val_str):
-                    return [val_str]
-                else:
-                    break
-        else:
-            wb = openpyxl.load_workbook(file, data_only=True)
-            ws = wb.active
-            row = 24
-            while True:
-                val = ws[f"B{row}"].value
-                val_str = str(val).strip() if val is not None else ""
-                if not val_str:
-                    break
-                if style_pattern.match(val_str):
-                    return [val_str]
-                else:
-                    break
-                row += 1
-        return []
-    except Exception as e:
-        st.error(f"❌ Error reading Excel file: {e}")
-        return []
+
 # -------------------- Style to PDF --------------------
 def create_styles_pdf(styles: list) -> BytesIO:
     doc = fitz.open()
@@ -464,6 +645,7 @@ def create_styles_pdf(styles: list) -> BytesIO:
     doc.save(buf)
     buf.seek(0)
     return buf
+
 # -------------------- Merge PDF --------------------
 def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out = fitz.open()
@@ -477,6 +659,7 @@ def merge_pdfs(original_pdf: BytesIO, styles_pdf: BytesIO) -> BytesIO:
     pdf_out.save(output)
     output.seek(0)
     return output
+
 # -------------------- Missing Function: Extract Style Numbers from PO First Page --------------------
 def extract_style_numbers_from_po_first_page(pdf_file):
     """Extract style numbers from the first page of PO PDF"""
@@ -498,6 +681,7 @@ def extract_style_numbers_from_po_first_page(pdf_file):
     except Exception as e:
         st.error(f"Error extracting style numbers from PO: {e}")
         return []
+
 # -------------------- NEW: Extract PO Number from PDF --------------------
 def extract_po_number(pdf_file):
     """Extract PO Number from PO PDF"""
@@ -528,14 +712,10 @@ def extract_po_number(pdf_file):
                         return match.group(1)
                 
                 # Fallback: Look for any 7-8 digit number on the right side of the page
-                # This is a more general approach if the specific label isn't found
                 words = first_page_text.split()
                 for i, word in enumerate(words):
-                    # Check if word is a 7-8 digit number
                     if re.match(r'^\d{7,8}$', word):
-                        # Check if it's on the right side by looking at its position
-                        # This is a heuristic - we assume right-side numbers are longer sequences
-                        if i > len(words) / 2:  # Simple heuristic: if it's in the latter half of words
+                        if i > len(words) / 2:
                             return word
                 
                 # If still not found, try all pages
@@ -550,11 +730,12 @@ def extract_po_number(pdf_file):
                 full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
                 numbers = re.findall(r'\b\d{7,8}\b', full_text)
                 if numbers:
-                    return numbers[0]  # Return the first found number
+                    return numbers[0]
         return ""
     except Exception as e:
         st.error(f"Error extracting PO number: {e}")
         return ""
+
 # -------------------- Helper Functions --------------------
 def clean_quantity(qty_str):
     """Convert strings like '1,148.0000' or '465.0000' into floats with 4 decimal places"""
@@ -562,10 +743,10 @@ def clean_quantity(qty_str):
         return 0.0000
     qty_str = str(qty_str).strip().replace(",", "")
     try:
-        # Convert to float and round to 4 decimal places
         return round(float(qty_str), 4)
     except ValueError:
         return 0.0000
+
 def truncate_after_sri_lanka(addr: str) -> str:
     """
     Extract the address up to and including:
@@ -577,16 +758,10 @@ def truncate_after_sri_lanka(addr: str) -> str:
     """
     if not addr:
         return addr.strip()
-    
-    # Convert to lowercase for case-insensitive matching
     addr_lower = addr.lower()
-    
-    # First, check for "Sri Lanka"
     sri_lanka_pos = addr_lower.find("sri lanka")
     if sri_lanka_pos != -1:
         return addr[:sri_lanka_pos + len("sri lanka")].strip()
-    
-    # Count occurrences of "India"
     india_positions = []
     search_pos = 0
     while True:
@@ -594,32 +769,26 @@ def truncate_after_sri_lanka(addr: str) -> str:
         if india_pos == -1:
             break
         india_positions.append(india_pos)
-        search_pos = india_pos + 1  # Move past this occurrence
-    
-    # If we have at least two "India" occurrences
+        search_pos = india_pos + 1
     if len(india_positions) >= 2:
         second_india_pos = india_positions[1]
         return addr[:second_india_pos + len("india")].strip()
-    
-    # If we have one "India" occurrence
     if len(india_positions) == 1:
         first_india_pos = india_positions[0]
         return addr[:first_india_pos + len("india")].strip()
-    
-    # If neither "Sri Lanka" nor "India" found
     return addr.strip()
+
 def clean_size(size_str):
     """Extract only the primary size from strings like 'S | P' or 'M / M'"""
     if not size_str:
         return ""
     size_str = str(size_str).strip().upper()
-    
-    # Split by pipe or slash and take the first part
     if "|" in size_str:
         return size_str.split("|")[0].strip()
     elif "/" in size_str:
         return size_str.split("/")[0].strip()
     return size_str
+
 def extract_wo_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
@@ -627,39 +796,23 @@ def extract_wo_fields(pdf_file):
     lines = text.split("\n")
     for i, ln in enumerate(lines):
         if "Deliver To:" in ln:
-            # If there's a line before "Deliver To:", check if it might be part of the address
             if i > 0:
                 prev_line = lines[i-1].strip()
-                # Skip previous line if it contains "Customer Delivery Name"
                 if "Customer Delivery Name" in prev_line:
-                    # Skip this line and just use the current address line
                     delivery = truncate_after_sri_lanka(re.sub(r"Deliver To:\s*", "", ln).strip())
                 else:
-                    # Check if the previous line looks like part of an address (not just a name)
-                    # If it contains numbers, street indicators, or is longer than a typical name
                     if (any(char.isdigit() for char in prev_line) or 
                         any(indicator in prev_line.lower() for indicator in 
                             ["street", "st", "road", "rd", "avenue", "ave", "building", "block", "no", "#"]) or
-                        len(prev_line.split()) > 3):  # More than 3 words suggests it's an address part
-                        # Combine the previous line with the current address line
+                        len(prev_line.split()) > 3):
                         combined = prev_line + " " + re.sub(r"Deliver To:\s*", "", ln).strip()
                         delivery = truncate_after_sri_lanka(combined)
                     else:
-                        # Previous line is likely just a name, so skip it
                         delivery = truncate_after_sri_lanka(re.sub(r"Deliver To:\s*", "", ln).strip())
             else:
-                # No previous line, just extract the address
                 delivery = truncate_after_sri_lanka(re.sub(r"Deliver To:\s*", "", ln).strip())
-            
-            # Remove "PTK ENTERPRISES," from the delivery address
             delivery = re.sub(r'PTK ENTERPRISES,\s*', '', delivery, flags=re.IGNORECASE)
             break
-    
-    # ... rest of the function remains the same ...
-    
-    # Skip the step that removes "Customer Delivery Name:" since we're not reading it at all
-    # (Removed the previous code that handled "Customer Delivery Name:")
-    
     codes = []
     for line in lines:
         if "Product Code" in line:
@@ -667,21 +820,14 @@ def extract_wo_fields(pdf_file):
             for match in found:
                 for code in match.split("/"):
                     clean = code.strip().upper()
-                    
-                    # Remove "VSBA" from the product code
                     clean = clean.replace("VSBA", "")
-                    
-                    # Replace "-" with space
                     clean = clean.replace("-", " ")
-                    
                     if clean:
                         codes.append(clean)
             break
-    
     po_numbers = list(set(re.findall(r'\b\d{7,8}\b', text)))
-    
     return {
-        "customer_name": "",  # Empty as requested
+        "customer_name": "",
         "delivery_address": delivery,
         "product_codes": list(set(codes)),
         "po_numbers": po_numbers
@@ -691,8 +837,6 @@ def extract_po_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     lines = [ln.strip() for ln in text.split("\n")]
-    
-    # Method 1: Look for "Delivery Location:" section
     capture = False
     address_lines = []
     blank_count = 0
@@ -711,64 +855,41 @@ def extract_po_fields(pdf_file):
             else:
                 blank_count = 0
             address_lines.append(ln)
-    
-    # If Method 1 found an address, use it
     if address_lines:
         full_address = " ".join(address_lines)
     else:
-        # Method 2: Look for Plot/Building pattern followed by address lines ending with India
         plot_found = False
         temp_address_lines = []
-        
         for i, line in enumerate(lines):
-            # Check if line contains Plot/Building pattern
             if re.search(r'\b(plot|building)\s*#?\s*\d+', line, re.IGNORECASE):
                 plot_found = True
                 temp_address_lines = [line]
-                
-                # Look ahead for continuation lines until we find "India"
                 for j in range(i + 1, len(lines)):
                     next_line = lines[j].strip()
                     if not next_line:
                         continue
-                    
                     temp_address_lines.append(next_line)
-                    
-                    # Stop if we find "Sri Lanka" or "India"
                     if re.search(r'\bindia\b', next_line, re.IGNORECASE):
                         break
-                    
-                    # Stop if we hit certain keywords that indicate end of address
                     if any(keyword in next_line.lower() for keyword in 
                            ['forwarder', 'shipping', 'invoice', 'payment', 'terms']):
-                        temp_address_lines.pop()  # Remove the last line as it's not part of address
+                        temp_address_lines.pop()
                         break
                 break
-        
         if plot_found and temp_address_lines:
             full_address = " ".join(temp_address_lines)
         else:
-            # Method 3: Fallback - look for any address pattern
             full_address = ""
-    
-    # Normalize the address string
-    full_address = re.sub(r'\s+', ' ', full_address)  # Replace multiple spaces with one
-    full_address = full_address.replace('\xa0', ' ')  # non-breaking space
-    full_address = full_address.replace('\u2013', '-')  # en dash
-    full_address = full_address.replace('\u2014', '-')  # em dash
-    
-    # Apply the truncation logic using the existing helper function
+    full_address = re.sub(r'\s+', ' ', full_address)
+    full_address = full_address.replace('\xa0', ' ')
+    full_address = full_address.replace('\u2013', '-')
+    full_address = full_address.replace('\u2014', '-')
     final_addr = truncate_after_sri_lanka(full_address)
-    
-    # Clean up the address
     final_addr = final_addr.strip()
-    
-    # Extract product codes (unchanged)
     po_codes = re.findall(r"(LB\s*\d+)", text)
     sup_ref_codes = re.findall(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
     tag_codes = re.findall(r"TAG\.PRC\.TKT_(.*?)_REG", text)
     all_product_codes = list(set([c.strip().upper() for c in sup_ref_codes + tag_codes]))
-    
     return {
         "delivery_location": final_addr,
         "product_codes": po_codes + all_product_codes,
@@ -776,74 +897,14 @@ def extract_po_fields(pdf_file):
     }
 
 def clean_wo_address(addr: str) -> str:
-    """
-    Clean specific WO address format by removing unnecessary commas and redundant India suffix.
-    Example: "Plot# 18,BIAC SEZ,, Pudimadaka Road,Achutapuram mandal,, Visakhapatnam-Andra Pradesh,531 011-India, , India"
-    becomes: "Plot# 18,BIAC SEZ, Pudimadaka Road,Achutapuram mandal, Visakhapatnam-Andra Pradesh,531 011-India"
-    """
     if not addr:
         return addr.strip()
-    
-    # Remove the trailing ", , India" pattern (comma, space, comma, space, India)
     addr = re.sub(r',\s*,\s*India\s*$', '', addr, flags=re.IGNORECASE)
-    
-    # Remove double commas (,, -> ,)
     addr = re.sub(r',,\s*', ', ', addr)
-    
-    # Remove excessive spaces around commas
     addr = re.sub(r'\s*,\s*', ', ', addr)
-    
-    # Remove trailing comma and spaces
     addr = re.sub(r',\s*$', '', addr)
-    
     return addr.strip()
-def truncate_after_sri_lanka(addr: str) -> str:
-    """
-    Extract the address up to and including:
-    - The first occurrence of "Sri Lanka" (if found)
-    - The second occurrence of "India" (if found twice)
-    - The first occurrence of "India" (if found once)
-    - Otherwise, the entire address
-    Case-insensitive matching.
-    """
-    if not addr:
-        return addr.strip()
-    
-    # First, apply WO address cleaning if it matches the pattern
-    if "Plot#" in addr and ",," in addr and addr.count("India") >= 2:
-        addr = clean_wo_address(addr)
-    
-    # Convert to lowercase for case-insensitive matching
-    addr_lower = addr.lower()
-    
-    # First, check for "Sri Lanka"
-    sri_lanka_pos = addr_lower.find("sri lanka")
-    if sri_lanka_pos != -1:
-        return addr[:sri_lanka_pos + len("sri lanka")].strip()
-    
-    # Count occurrences of "India"
-    india_positions = []
-    search_pos = 0
-    while True:
-        india_pos = addr_lower.find("india", search_pos)
-        if india_pos == -1:
-            break
-        india_positions.append(india_pos)
-        search_pos = india_pos + 1  # Move past this occurrence
-    
-    # If we have at least two "India" occurrences
-    if len(india_positions) >= 2:
-        second_india_pos = india_positions[1]
-        return addr[:second_india_pos + len("india")].strip()
-    
-    # If we have one "India" occurrence
-    if len(india_positions) == 1:
-        first_india_pos = india_positions[0]
-        return addr[:first_india_pos + len("india")].strip()
-    
-    # If neither "Sri Lanka" nor "India" found
-    return addr.strip()
-# Make sure the compare_addresses function uses the extracted PO address
+
 def compare_addresses(wo, po):
     ns = fuzz.token_sort_ratio(wo["customer_name"], po["delivery_location"])
     as_ = fuzz.token_sort_ratio(wo["delivery_address"], po["delivery_location"])
@@ -851,16 +912,16 @@ def compare_addresses(wo, po):
     return {
         "WO Name": wo["customer_name"], 
         "WO Addr": wo["delivery_address"], 
-        "PO Addr": po["delivery_location"],  # This will now show our extracted address
+        "PO Addr": po["delivery_location"],
         "Name %": ns, 
         "Addr %": as_, 
         "Overall %": comb, 
-        "Status": "✅ Match" if comb > 90 else "⚠️ Review"
+        "Status": "✅ Match" if comb >= 90 else "⚠️ Review"
     }
+
 def extract_style_numbers(po_pdf_path):
     style_numbers = set()
     with pdfplumber.open(po_pdf_path) as pdf:
-        # Check PO tables
         for page in pdf.pages:
             tables = page.extract_tables()
             if tables:
@@ -870,20 +931,16 @@ def extract_style_numbers(po_pdf_path):
                             for cell in row:
                                 if cell:
                                     cell_clean = str(cell).strip().replace(',', '')
-                                    # If it's a decimal like "1148.00", take integer part
                                     if "." in cell_clean:
                                         cell_clean = cell_clean.split(".")[0]
                                     if cell_clean.isdigit():
                                         val = int(cell_clean)
-                                        if 10 < val < 100000:  # filter out prices / too small / too big
-                                            if val > qty:      # pick the largest number in the row
+                                        if 10 < val < 100000:
+                                            if val > qty:
                                                 qty = val
-                                
-        # Check free-text (regex search)
         full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
         found_free_text_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', full_text)
         style_numbers.update([s.strip() for s in found_free_text_styles])
-        # Check "Extracted Style Numbers:" section on first page
         if len(pdf.pages) > 0:
             first_page_text = pdf.pages[0].extract_text() or ""
             extracted_section_match = re.search(r'Extracted Style Numbers:\s*(.+)', first_page_text)
@@ -891,30 +948,29 @@ def extract_style_numbers(po_pdf_path):
                 extracted_styles = re.findall(r'\b[A-Z]{2,}\s*\d{3,}\b', extracted_section_match.group(1))
                 style_numbers.update([s.strip() for s in extracted_styles])
     return list(style_numbers)
+
 def reorder_wo_by_size(wo_items):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
     def get_order(wo):
         size = wo.get("Size 1", "").strip().upper()
         return size_order.get(size, 99)
     return sorted(wo_items, key=get_order)
+
 def reorder_po_by_size(po_details):
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
-   
     def get_order(po):
         size = po.get("Size", "").strip().upper()
         return size_order.get(size, 99)
-   
     return sorted(po_details, key=get_order)
+
 def sort_items_by_size(items):
-    """Sort matched or mismatched items by size from smallest to largest"""
     size_order = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4, "XXL": 5}
-    
     def get_size_key(item):
-        # Use WO Size if available, otherwise use PO Size
         size = item.get("WO Size", item.get("PO Size", "")).strip().upper()
-        return size_order.get(size, 99)  # Default to 99 if size not found
-    
+        return size_order.get(size, 99)
     return sorted(items, key=get_size_key)
+
+# -------------------- MINIMAL, NON-BREAKING FIX inside this function ONLY --------------------
 def extract_po_details(pdf_file):
     """Enhanced function to handle multiple PO formats with quantity aggregation"""
     pdf_file.seek(0)
@@ -929,47 +985,48 @@ def extract_po_details(pdf_file):
     po_items = []
     item_dict = {}  # Dictionary to aggregate quantities by size, color, and style
     if has_tag_format and not has_original_format:
-        # NEW FORMAT HANDLING
         tag_match = re.search(r"TAG\.PRC\.TKT_(.*?)_REG", text)
         product_code_used = tag_match.group(1).strip().upper() if tag_match else ""
-        
         product_code_used = product_code_used.replace("-", " ")
-        
         i = 0
         while i < len(lines):
             line = lines[i]
-            # Updated regex to handle quantities with commas
             item_match = re.match(r'^(\d+)\s+TAG\.PRC\.TKT_.*?([\d,]+\.\d+)\s+PCS', line)
             if item_match:
                 item_no = item_match.group(1)
                 quantity_str = item_match.group(2)
-                quantity = clean_quantity(quantity_str)  # Using updated function
-                
+                quantity = clean_quantity(quantity_str)
                 colour = size = ""
                 for j in range(i + 1, min(i + 5, len(lines))):
                     next_line = lines[j]
                     if "Color/Size/Destination :" in next_line:
                         cs_part = next_line.split(":", 1)[1].strip()
                         cs_parts = [part.strip() for part in cs_part.split(" / ") if part.strip()]
-                        
                         if len(cs_parts) >= 2:
-                            # NEW LOGIC: Check if first part is a size
                             size_keywords = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "P", "G"]
                             first_part = cs_parts[0].strip()
-                            
                             if first_part.upper() in size_keywords:
-                                # Format: Size / Color (like "L / 34Y5 54K")
                                 size = first_part.upper()
                                 colour = cs_parts[1].split()[0] if cs_parts[1] else ""
                             else:
-                                # ORIGINAL LOGIC: Color / Size format
                                 colour_part = cs_parts[0].strip()
                                 colour = colour_part.split()[0] if colour_part else ""
                                 size = cs_parts[1].strip().upper()
+                        
+                        # NEW LOGIC: Check for size before last slash
+                        # Find the last occurrence of a slash
+                        last_slash_index = cs_part.rfind('/')
+                        if last_slash_index != -1:
+                            # Get the substring before the last slash
+                            before_slash = cs_part[:last_slash_index].strip()
+                            # Split into tokens and check in reverse order
+                            tokens = before_slash.split()
+                            for token in reversed(tokens):
+                                if token.upper() in size_keywords:
+                                    size = token.upper()
+                                    break
                         break
-                
                 item_key = (size, colour.upper() if colour else "", repeated_style)
-                
                 if item_key in item_dict:
                     item_dict[item_key]["Quantity"] += quantity
                 else:
@@ -984,10 +1041,9 @@ def extract_po_details(pdf_file):
                     }
             i += 1
     else:
-        # ORIGINAL FORMAT HANDLING (keep existing code, just ensure clean_quantity() is used)
+        # ORIGINAL FORMAT HANDLING (kept original logic)
         sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*([A-Z]+[-\s]?\d+)", text, re.IGNORECASE)
         sup_ref_code = sup_ref_match.group(1).strip().upper() if sup_ref_match else ""
-        
         sup_ref_code = sup_ref_code.replace("-", " ")
         tag_code = ""
         for i, line in enumerate(lines):
@@ -1001,15 +1057,23 @@ def extract_po_details(pdf_file):
                 break
         product_code_used = sup_ref_code if sup_ref_code else tag_code
         for i, line in enumerate(lines):
-            # Updated regex to handle quantities with commas
+            # Strict pattern (original)
             item_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\s+(\d+)\s+([\d,]+\.\d+)\s+PCS', line)
-            if item_match:
-                item_no, item_code, _, qty_str = item_match.groups()
-                quantity = clean_quantity(qty_str)  # Using updated function
+            # Fallback pattern (only used if strict fails) — non-breaking
+            relaxed_match = None
+            if not item_match:
+                relaxed_match = re.match(r'^(\d+)\s+([A-Z0-9]+)\b.*?([\d,]+(?:\.\d+)?)\s+PCS', line)
+            if item_match or relaxed_match:
+                if item_match:
+                    item_no, item_code, _, qty_str = item_match.groups()
+                else:
+                    item_no, item_code, qty_str = relaxed_match.groups()
+                quantity = clean_quantity(qty_str)
                 colour = size = ""
+                # Keep original logic, just allow "Color/Size/Destination :" as additional fall-back
                 for j in range(i + 1, min(i + 10, len(lines))):
                     ln = lines[j]
-                    if not colour and "Colour/Size/Destination:" in ln:
+                    if not colour and ("Colour/Size/Destination:" in ln or "Color/Size/Destination :" in ln):
                         cs = ln.split(":", 1)[1].strip()
                         size_keywords = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "P", "G"]
                         parts = [p.strip() for p in cs.split("/") if p.strip()]
@@ -1024,8 +1088,20 @@ def extract_po_details(pdf_file):
                                 size_match = re.search(r'/\s*([^/]+)\s*/', cs)
                                 if size_match:
                                     size = size_match.group(1).strip()
-                item_key = (size.upper() if size else "", colour.upper() if colour else "", repeated_style)
-                
+                        
+                        # NEW LOGIC: Check for size before last slash
+                        # Find the last occurrence of a slash
+                        last_slash_index = cs.rfind('/')
+                        if last_slash_index != -1:
+                            # Get the substring before the last slash
+                            before_slash = cs[:last_slash_index].strip()
+                            # Split into tokens and check in reverse order
+                            tokens = before_slash.split()
+                            for token in reversed(tokens):
+                                if token.upper() in size_keywords:
+                                    size = token.upper()
+                                    break
+                item_key = (size.upper() if size else "", (colour or "").strip().upper(), repeated_style)
                 if item_key in item_dict:
                     item_dict[item_key]["Quantity"] += quantity
                 else:
@@ -1040,20 +1116,21 @@ def extract_po_details(pdf_file):
                     }
     po_items = list(item_dict.values())
     return po_items
+
 # -------------------- UPDATED WO Extraction Function --------------------
 def extract_wo_items_table(pdf_file, product_codes=None):
     """
     Enhanced function to extract WO items from Victoria's Secret price ticket tables
-    with improved table detection and data extraction for all formats
+    with improved table detection and data extraction for all formats, including sizes split across lines
     """
     items = []
     
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # First, try to extract tables with standard settings
+            # First try standard table extraction
             tables = page.extract_tables()
             
-            # If standard extraction doesn't work well, try with explicit settings
+            # If standard extraction fails, try with explicit lines
             if not tables or len(tables) == 0:
                 tables = page.extract_tables({
                     "vertical_strategy": "text",
@@ -1062,69 +1139,48 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                     "explicit_horizontal_lines": page.curves + page.edges,
                 })
             
-            # If still no tables, try another approach
-            if not tables or len(tables) == 0:
-                # Try to extract table by looking for text patterns
-                text = page.extract_text()
-                lines = text.split('\n')
-                
-                # Look for the header row
-                header_idx = -1
-                for i, line in enumerate(lines):
-                    if "Style" in line and "Colour Code" in line and "Size" in line:
-                        header_idx = i
-                        break
-                
-                if header_idx >= 0:
-                    # Process data rows
-                    for i in range(header_idx + 1, len(lines)):
-                        line = lines[i].strip()
-                        if not line:
-                            continue
-                            
-                        # Skip if it's a footer or separator
-                        if "Number of Size Changes" in line or "End of Works Order" in line:
-                            break
-                            
-                        # Try to extract data using regex - more flexible pattern
-                        # This pattern is designed to capture all variations of sizes including XS, XL, XXL
-                        pattern = r'(\d{8})\s+([A-Z0-9]+)\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)'
-                        match = re.search(pattern, line)
-                        
-                        if match:
-                            style = match.group(1)
-                            color_code = match.group(2)
-                            size1 = match.group(3)
-                            quantity_str = match.group(4).replace(',', '')
-                            
-                            try:
-                                quantity = int(quantity_str)
-                                items.append({
-                                    "Style": style,
-                                    "WO Colour Code": color_code.upper(),
-                                    "Size 1": size1,
-                                    "Quantity": quantity,
-                                    "WO Product Code": " / ".join(product_codes) if product_codes else ""
-                                })
-                            except ValueError:
-                                continue
-            
-            # Process tables if found
-            for table in tables:
+            # Process each table
+            for table_idx, table in enumerate(tables):
                 if not table or len(table) < 2:
                     continue
                 
-                # Look for the header row
+                # Pre-process table to handle sizes split across cells and within cells
+                processed_table = []
+                for row in table:
+                    if not row:
+                        continue
+                    
+                    processed_row = []
+                    i = 0
+                    while i < len(row):
+                        cell = str(row[i]) if row[i] is not None else ""
+                        
+                        # Check if this cell ends with a slash and the next cell contains a size suffix
+                        if i < len(row) - 1 and cell.strip().endswith("/"):
+                            next_cell = str(row[i+1]) if row[i+1] is not None else ""
+                            # Check if next cell is a size suffix (XP, P, M, G, XG)
+                            if next_cell.strip().upper() in ["XP", "P", "M", "G", "XG"]:
+                                # Combine the cells
+                                combined_cell = cell + next_cell
+                                processed_row.append(combined_cell)
+                                i += 2  # Skip the next cell
+                                continue
+                        
+                        # If not a split size, just add the cell as-is
+                        processed_row.append(cell)
+                        i += 1
+                    
+                    processed_table.append(processed_row)
+                
+                # Now find the header row
                 header_row_idx = -1
                 column_positions = {}
                 
-                for i, row in enumerate(table):
+                for i, row in enumerate(processed_table):
                     if not row:
                         continue
                     
                     row_text = " ".join([str(cell).strip() for cell in row if cell])
-                    
-                    # Check if this row contains expected headers
                     if any(term in row_text for term in ["Style", "Colour Code", "Size", "Quantity"]):
                         header_row_idx = i
                         
@@ -1155,26 +1211,24 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                 column_positions["quantity"] = j
                         break
                 
-                # If no header found, try to identify by content patterns
+                # If we couldn't find a header row, try to infer it
                 if header_row_idx == -1:
-                    for i, row in enumerate(table):
+                    for i, row in enumerate(processed_table):
                         if not row or len(row) < 8:
                             continue
-                            
-                        # Check if first column looks like a style number (8 digits)
+                        
                         first_cell = str(row[0]).strip()
                         if re.match(r'^\d{8}$', first_cell):
-                            # Check if one of the columns contains size information
                             has_size = False
                             for cell in row:
                                 cell_str = str(cell).strip().upper()
-                                if any(size in cell_str for size in ["XS", "S", "M", "L", "XL", "XXL"]):
+                                # Check for any size format, including combined ones
+                                if any(size in cell_str for size in ["XS/XP", "S/P", "M/M", "L/G", "XL/XG", "XXL", "XXXL", "XXG", "XG", "XS", "S", "M", "L", "XL", "P", "G"]):
                                     has_size = True
                                     break
                             
                             if has_size:
                                 header_row_idx = i
-                                # Assume standard column positions
                                 column_positions = {
                                     "style": 0,
                                     "color_code": 1,
@@ -1186,50 +1240,86 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                     "multi_price": 7,
                                     "sku": 8,
                                     "article": 9,
-                                    "quantity": len(row) - 1  # Last column is quantity
+                                    "quantity": len(row) - 1
                                 }
                                 break
                 
+                # Skip if we couldn't determine the header
                 if header_row_idx == -1:
                     continue
                 
                 # Process data rows
-                for row in table[header_row_idx + 1:]:
+                for row_idx, row in enumerate(processed_table[header_row_idx + 1:], header_row_idx + 1):
                     if not row or len(row) < max(column_positions.values()) + 1:
                         continue
                     
                     try:
-                        # Extract data using column positions
                         style = str(row[column_positions.get("style", 0)] or "").strip()
                         color_code = str(row[column_positions.get("color_code", 1)] or "").strip().upper()
                         
-                        # Extract and clean size1 - with enhanced detection for all sizes
+                        # Handle size extraction with special care for combined sizes and multi-line sizes
                         size1_raw = str(row[column_positions.get("size1", 2)] or "").strip()
-                        size1 = clean_size(size1_raw)
                         
-                        # If size1 is still empty, try to find size in other columns
+                        # Check if the size cell contains a newline (like "XS\nXP")
+                        if "\n" in size1_raw:
+                            # Split by newline and take the first part
+                            size_parts = size1_raw.split("\n")
+                            # Process each part to handle the case where one part is just "/" and the next is "XP"
+                            processed_size = ""
+                            for part in size_parts:
+                                if part.strip() == "/":
+                                    processed_size += "/"
+                                else:
+                                    processed_size += part.strip()
+                            
+                            # Now clean the processed size
+                            size1 = clean_size(processed_size)
+                        else:
+                            size1 = clean_size(size1_raw)
+                        
+                        # If we didn't get a valid size, try to find it in other cells
                         if not size1:
+                            # Check each cell for size patterns
                             for cell in row:
-                                cell_str = str(cell).strip().upper()
-                                # Enhanced regex to capture all size variations
-                                size_match = re.search(r'\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b', cell_str)
-                                if size_match:
-                                    size1 = size_match.group(1)
-                                    break
+                                cell_str = str(cell).strip()
+                                
+                                # Check if the cell contains a newline
+                                if "\n" in cell_str:
+                                    # Split by newline and check each part
+                                    parts = cell_str.split("\n")
+                                    processed_cell = ""
+                                    for part in parts:
+                                        if part.strip() == "/":
+                                            processed_cell += "/"
+                                        else:
+                                            processed_cell += part.strip()
+                                    
+                                    # Look for size patterns in the processed cell
+                                    cell_upper = processed_cell.upper()
+                                    size_match = re.search(r'\b(XS/XP|S/P|M/M|L/G|XL/XG|XXL|XXXL|XXG|XG|XS|S|M|L|XL|P|G)\b', cell_upper)
+                                    if size_match:
+                                        size1 = clean_size(size_match.group(1))
+                                        break
+                                else:
+                                    # Look for size patterns in the whole cell
+                                    cell_upper = cell_str.upper()
+                                    size_match = re.search(r'\b(XS/XP|S/P|M/M|L/G|XL/XG|XXL|XXXL|XXG|XG|XS|S|M|L|XL|P|G)\b', cell_upper)
+                                    if size_match:
+                                        size1 = clean_size(size_match.group(1))
+                                        break
                         
-                        # Extract quantity - try multiple methods
+                        # Extract quantity
                         quantity_str = ""
                         if "quantity" in column_positions:
                             quantity_str = str(row[column_positions["quantity"]] or "").strip()
                         
-                        # If quantity not found or invalid, try the last column
                         if not quantity_str or not re.search(r'\d', quantity_str):
+                            # Try the last column as a fallback
                             quantity_str = str(row[-1] or "").strip()
                         
-                        # Clean and validate the quantity
                         quantity = clean_quantity(quantity_str)
                         
-                        # Only add if we have valid data
+                        # Only add item if we have valid style and quantity
                         if style and quantity > 0:
                             item_data = {
                                 "Style": style,
@@ -1239,89 +1329,115 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                 "WO Product Code": " / ".join(product_codes) if product_codes else ""
                             }
                             
-                            # Add optional fields if available
+                            # Add optional fields if they exist
                             if "size2" in column_positions:
                                 size2_raw = str(row[column_positions["size2"]] or "").strip()
-                                item_data["Size 2"] = clean_size(size2_raw)
+                                # Check if the size2 cell contains a newline
+                                if "\n" in size2_raw:
+                                    # Split by newline and process each part
+                                    size_parts = size2_raw.split("\n")
+                                    processed_size = ""
+                                    for part in size_parts:
+                                        if part.strip() == "/":
+                                            processed_size += "/"
+                                        else:
+                                            processed_size += part.strip()
+                                    
+                                    item_data["Size 2"] = clean_size(processed_size)
+                                else:
+                                    item_data["Size 2"] = clean_size(size2_raw)
+                            
                             if "panty_length" in column_positions:
                                 item_data["Panty Length"] = str(row[column_positions["panty_length"]] or "").strip()
+                            
                             if "retail_us" in column_positions:
                                 item_data["Retail US"] = str(row[column_positions["retail_us"]] or "").strip()
+                            
                             if "retail_ca" in column_positions:
                                 item_data["Retail CA"] = str(row[column_positions["retail_ca"]] or "").strip()
+                            
                             if "multi_price" in column_positions:
                                 item_data["Multi Price"] = str(row[column_positions["multi_price"]] or "").strip()
+                            
                             if "sku" in column_positions:
                                 item_data["SKU"] = str(row[column_positions["sku"]] or "").strip()
+                            
                             if "article" in column_positions:
                                 item_data["Article"] = str(row[column_positions["article"]] or "").strip()
                             
                             items.append(item_data)
-                            
+                    
                     except (ValueError, IndexError):
-                        # Skip rows with parsing errors
                         continue
     
-    # Enhanced fallback: If table extraction fails, try more comprehensive text pattern matching
+    # If we still don't have items, try text-based extraction
     if not items:
         pdf_file.seek(0)
         with pdfplumber.open(pdf_file) as pdf:
-            full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+            full_text = ""
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    full_text += text + "\n"
         
-        # Try multiple patterns to capture different table formats
-        patterns = [
-            # Pattern 1: Standard format with pipes - enhanced to capture all sizes
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
-            # Pattern 2: Format without pipes but with clear column separation
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
-            # Pattern 3: More flexible pattern for variations
-            r'(\d{8})\s+([A-Z0-9]{2,4})\s+\b(XS|S|M|L|XL|XXL|XXXL|XXG|XG|P|G)\b.*?(\d{1,4}(?:,\d{3})*)',
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, full_text)
-            if matches:
-                for match in matches:
-                    style_num, color_code, size, quantity = match
-                    quantity = quantity.replace(',', '')
-                    try:
-                        items.append({
-                            "Style": style_num,
-                            "WO Colour Code": color_code.upper(),
-                            "Size 1": size,
-                            "Quantity": int(quantity),
-                            "WO Product Code": " / ".join(product_codes) if product_codes else ""
-                        })
-                    except ValueError:
-                        continue
-                break  # Stop after first successful pattern match
+        # Try to find patterns in the text
+        # Look for lines that contain style, color, size, and quantity
+        lines = full_text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Pattern: 8-digit style, then alphanumeric code, then size, then numbers
+            # Example: 11276771 91S3 XS/ XP $14.50 $14.50 0198765613549 27184055 1605
+            # We need to handle the space in "XS/ XP" and also newlines
+            
+            # First, normalize the line by removing extra spaces and handling newlines
+            normalized_line = re.sub(r'\s+', ' ', line)
+            
+            # Try to match the pattern
+            pattern = r'(\d{8})\s+([A-Z0-9]+)\s+(XS/XP|S/P|M/M|L/G|XL/XG|XXL|XXXL|XXG|XG|XS|S|M|L|XL|P|G)\s+\$[\d.]+\s+\$[\d.]+\s+\d+\s+\d+\s+(\d{1,4}(?:,\d{3})*)'
+            match = re.search(pattern, normalized_line)
+            
+            if match:
+                style = match.group(1)
+                color_code = match.group(2)
+                size = match.group(3)
+                quantity = match.group(4).replace(',', '')
+                
+                try:
+                    items.append({
+                        "Style": style,
+                        "WO Colour Code": color_code.upper(),
+                        "Size 1": clean_size(size),
+                        "Quantity": int(quantity),
+                        "WO Product Code": " / ".join(product_codes) if product_codes else ""
+                    })
+                except ValueError:
+                    continue
     
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_items = []
+    # Aggregate quantities for items with same style, color code, and size
+    aggregated_items = {}
     for item in items:
-        key = (item["Style"], item["WO Colour Code"], item["Size 1"], item["Quantity"])
-        if key not in seen:
-            seen.add(key)
-            unique_items.append(item)
+        key = (item["Style"], item["WO Colour Code"], item["Size 1"])
+        if key in aggregated_items:
+            aggregated_items[key]["Quantity"] += item["Quantity"]
+        else:
+            aggregated_items[key] = item.copy()
     
-    return unique_items
-SIZES = {"XS", "S", "M", "L", "XL", "XXL", "XP", "P", "G", "XG"}
-def _extract_qty_from_text(text, min_value=10, max_value=100000):
-    """
-    Find the most plausible quantity in a text cell.
-    Handles: 1,148.00 -> 1148, 465.00 -> 465, 306.00 -> 306, 1675 -> 1675.
-    Ignores small numbers by threshold and picks the largest candidate in the cell.
-    """
+    # Convert back to list
+    final_items = list(aggregated_items.values())
+    
+    return final_items
+
+def _extract_qty_from_text(text, min_value=1, max_value=100000):
     if not text:
         return None
-    # Numbers like 1,148.00 or 1675 or 10.95
     candidates = re.findall(r'\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?', str(text))
     best = None
     for token in candidates:
         num_str = token.replace(",", "")
         try:
-            # Take integer part (so 1148.00 -> 1148, 10.95 -> 10)
             int_part = num_str.split(".", 1)[0]
             if not int_part:
                 continue
@@ -1332,8 +1448,8 @@ def _extract_qty_from_text(text, min_value=10, max_value=100000):
         except ValueError:
             continue
     return best
+
 def _dedupe(items):
-    """Remove duplicates while preserving order."""
     seen = set()
     unique = []
     for it in items:
@@ -1343,11 +1459,10 @@ def _dedupe(items):
         seen.add(key)
         unique.append(it)
     return unique
+
 def extract_wo_items_table_enhanced(pdf_file, product_codes=None):
-    """
-    Keep the same API as your 'enhanced' version. Uses the same logic above.
-    """
     return extract_wo_items_table(pdf_file, product_codes)
+
 def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
     matched, mismatched = [], []
     used = set()
@@ -1428,7 +1543,6 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
                 "Colour Match": "❌ No", "Style Match": "❌ No",
                 "Diff": "", "Status": "❌ No PO Match", "PO Item Code": ""
             })
-    # Remaining unmatched PO items
     for idx, po in enumerate(po_details):
         if idx not in used:
             ps = po.get("Size", "").strip().upper()
@@ -1444,47 +1558,33 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
                 "Colour Match": "❌ No", "Style Match": "❌ No",
                 "Diff": "", "Status": "❌ Extra PO Item", "PO Item Code": po.get("Item_Code", "")
             })
-    
-    # Sort matched and mismatched items by size
     matched = sort_items_by_size(matched)
     mismatched = sort_items_by_size(mismatched)
-    
     return matched, mismatched
+
 def compare_codes(po_details, wo_items):
-    # Handle PO codes - ensure they are strings before processing
     po_codes = set()
     for po in po_details:
         code = po.get("Product_Code", "")
         if code:
-            # Convert to string if it's not already
             if isinstance(code, list):
-                # Join list elements with a separator
                 code_str = " / ".join(str(c) for c in code if c)
             else:
                 code_str = str(code)
-            
-            # Clean and add to set
             cleaned_code = code_str.strip().upper()
             if cleaned_code:
                 po_codes.add(cleaned_code)
-    
-    # Handle WO codes - ensure they are strings before processing
     wo_codes = set()
     for w in wo_items:
         code = w.get("WO Product Code", "")
         if code:
-            # Convert to string if it's not already
             if isinstance(code, list):
-                # Join list elements with a separator
                 code_str = " / ".join(str(c) for c in code if c)
             else:
                 code_str = str(code)
-            
-            # Clean and add to set
             cleaned_code = code_str.strip().upper()
             if cleaned_code:
                 wo_codes.add(cleaned_code)
-    
     comparison = []
     all_codes = po_codes.union(wo_codes)
     for code in all_codes:
@@ -1493,30 +1593,22 @@ def compare_codes(po_details, wo_items):
         status = "✅ Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
         comparison.append({"PO Code": code if in_po else "", "WO Code": code if in_wo else "", "Status": status})
     return comparison
+
 # -------------------- Debug Function --------------------
 def debug_po_extraction(pdf_file):
-    """Debug function to show PO address extraction steps"""
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    
     lines = [ln.strip() for ln in text.split("\n")]
-    
-    # Find the "Delivery Location:" section
     delivery_location_index = -1
     for i, line in enumerate(lines):
         if "Delivery Location:" in line:
             delivery_location_index = i
             break
-    
     st.write(f"Found 'Delivery Location:' at line {delivery_location_index}")
-    
-    # Show the next 10 lines after "Delivery Location:"
     if delivery_location_index != -1:
         st.write("Next 10 lines after 'Delivery Location:':")
         for i in range(delivery_location_index + 1, min(delivery_location_index + 11, len(lines))):
             st.write(f"Line {i}: {lines[i]}")
-    
-    # Show the full address text
     capture = False
     address_lines = []
     for ln in lines:
@@ -1529,18 +1621,14 @@ def debug_po_extraction(pdf_file):
             if not ln:
                 break
             address_lines.append(ln)
-    
     full_address = " ".join(address_lines)
     st.write("### Full Address Text")
     st.write(full_address)
-    
-    # Check for "Plot #" patterns
     plot_patterns = [
         "plot #", "plot no", "plot no.", "plot number", "plot",
         "building #", "building no", "building no.", "building number",
         "door #", "door no", "door no.", "door number"
     ]
-    
     st.write("### Pattern Matching")
     found_patterns = []
     for pattern in plot_patterns:
@@ -1549,17 +1637,13 @@ def debug_po_extraction(pdf_file):
             st.write(f"✅ Found pattern: {pattern}")
         else:
             st.write(f"❌ Pattern not found: {pattern}")
-    
-    # Count "India" occurrences
     india_count = full_address.lower().count("india")
     st.write(f"### 'India' Occurrences: {india_count}")
-    
-    # Show the extracted address
     po_fields = extract_po_fields(pdf_file)
     st.write("### Extracted Address")
     st.write(po_fields["delivery_location"])
-    
     return None
+
 # -------------------- Sidebar Configuration --------------------
 with st.sidebar:
     st.markdown("""
@@ -1584,7 +1668,6 @@ with st.sidebar:
         help="Upload your Purchase Order PDF file"
     )
     
-    # File status indicators
     if wo_file:
         st.success("✅ WO File Loaded")
     if po_file:
@@ -1593,11 +1676,12 @@ with st.sidebar:
     if wo_file and po_file:
         st.markdown("### 🚀 Ready to Process")
         st.info("Both files are loaded. Analysis will begin automatically.")
+
 # -------------------- Excel/PDF Merger Section --------------------
-with st.expander("📓 PDF Style Number Merger", expanded=False):
+with st.expander("📓 Excel Table Data Extractor", expanded=False):
     st.markdown("""
     <div class="section-header">
-        <h3 class="section-title">📊 Excel to PDF Style Extractor</h3>
+        <h3 class="section-title">📊 Excel Table Data Extractor</h3>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1607,67 +1691,207 @@ with st.expander("📓 PDF Style Number Merger", expanded=False):
         excel_file = st.file_uploader(
             "📤 Upload Excel File", 
             type=["xls", "xlsx"], 
-            key="excel",
+            key="excel_merger",
             disabled=not selected_user,
-            help="Upload Excel file containing style numbers"
+            help="Upload Excel file containing table data starting at row 22"
         )
     
     with col2:
         pdf_file_merger = st.file_uploader(
-            "📄 Upload PDF File", 
+            "📄 Upload PDF File (Optional)", 
             type=["pdf"], 
             key="pdf_merger",
             disabled=not selected_user,
-            help="Upload PDF file to merge with extracted styles"
+            help="Optional: Upload PDF file to merge with extracted styles"
         )
-    if excel_file and pdf_file_merger:
-        with st.spinner("🔄 Extracting styles and merging..."):
-            styles = extract_styles_from_excel(excel_file)
-        if styles:
-            st.markdown("""
-            <div class="alert-success">
-                ✅ <strong>Success!</strong> Style numbers extracted successfully.
-            </div>
-            """, unsafe_allow_html=True)
+    
+    if excel_file:
+        with st.spinner("🔄 Extracting table data..."):
+            # Extract table data from all sheets
+            all_sheets_data = read_excel_table(excel_file)
             
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.dataframe(
-                    pd.DataFrame(styles, columns=["📋 Extracted Style Numbers"]), 
-                    use_container_width=True
-                )
-            
-            with col2:
-                styles_pdf = create_styles_pdf(styles)
-                final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
+            # Process the extracted data
+            if all_sheets_data:
+                # Filter out sheets with no data
+                sheets_with_data = [s for s in all_sheets_data if not s['data'].empty]
                 
-                st.download_button(
-                    label="⬇️ Download Merged PDF",
-                    data=final_pdf,
-                    file_name="Merged-PO.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-        else:
-            st.markdown("""
-            <div class="alert-warning">
-                ⚠️ <strong>Warning:</strong> No valid style numbers found in the Excel file.
-            </div>
-            """, unsafe_allow_html=True)
-    elif excel_file or pdf_file_merger:
+                if sheets_with_data:
+                    processed_data = process_excel_table_data(sheets_with_data)
+                    
+                    # Store processed data in session state
+                    st.session_state.processed_excel_data = processed_data
+                    
+                    # Extract style numbers for potential PDF merging
+                    styles = []
+                    for sheet_data in sheets_with_data:
+                        if sheet_data['style_number']:
+                            styles.append(sheet_data['style_number'])
+                    
+                    # If no style numbers found in STYLE column, try to extract from the data
+                    if not styles:
+                        for sheet_data in sheets_with_data:
+                            df = sheet_data['data']
+                            if not df.empty:
+                                # Look for any 8-digit number in the dataframe
+                                for col in df.columns:
+                                    for val in df[col].dropna():
+                                        val_str = str(val).strip()
+                                        if re.match(r'^\d{8}$', val_str):
+                                            styles.append(val_str)
+                                            break
+                                    if styles:
+                                        break
+                                if styles:
+                                    break
+                    
+                    # Display the extracted table data
+                    st.markdown("""
+                    <div class="alert-success">
+                        ✅ <strong>Success!</strong> Table data extracted successfully.
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Show extraction details
+                    st.markdown("### 📋 Extraction Details")
+                    st.markdown("""
+                    <div class="alert-info">
+                        ℹ️ <strong>Extraction Rules:</strong> 
+                        <ul>
+                            <li>Starts at row 22</li>
+                            <li>Skips row 23</li>
+                            <li>Skips any row with stopping text</li>
+                            <li>Removes all unnamed columns</li>
+                            <li>Stops at first blank row in STYLE column</li>
+                            <li>Only reads columns up to QTY column</li>
+                        </ul>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    for sheet_data in all_sheets_data:
+                        with st.expander(f"Sheet: {sheet_data['sheet_name']}"):
+                            st.markdown(f"**Style Number:** {sheet_data['style_number'] or 'Not found'}")
+                            
+                            # Display stopping information
+                            if sheet_data['stop_row'] is not None:
+                                if sheet_data['stop_row'] == 21:
+                                    st.markdown(f"""
+                                    <div class="alert-warning">
+                                        ⚠️ <strong>Stopping text found in header row (row 22).</strong> No data extracted from this sheet.
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"""
+                                    <div class="alert-warning">
+                                        ⚠️ <strong>Stopping text found at row {sheet_data['stop_row'] + 1}.</strong> This row and any subsequent rows with stopping text were skipped.
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                            else:
+                                st.markdown("""
+                                <div class="alert-success">
+                                    ✅ <strong>No stopping text found.</strong> All rows (except row 23) were processed.
+                                </div>
+                                """, unsafe_allow_html=True)
+                            
+                            # Display QTY column information
+                            if sheet_data['qty_col_idx'] is not None:
+                                st.markdown(f"**QTY column found at index:** {sheet_data['qty_col_idx']}")
+                            else:
+                                st.markdown("""
+                                <div class="alert-warning">
+                                    ⚠️ <strong>QTY column not found.</strong> All columns were read.
+                                </div>
+                                """, unsafe_allow_html=True)
+                            
+                            # Display the data if it exists
+                            if not sheet_data['data'].empty:
+                                # Check if data was truncated due to blank STYLE
+                                if 'STYLE' in sheet_data['data'].columns:
+                                    last_style = sheet_data['data']['STYLE'].iloc[-1]
+                                    if pd.isna(last_style) or str(last_style).strip() == '':
+                                        st.markdown("""
+                                        <div class="alert-info">
+                                            ℹ️ <strong>Data truncated</strong> at first blank row in STYLE column.
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                st.markdown("**Extracted Data:**")
+                                st.dataframe(sheet_data['data'], use_container_width=True)
+                                
+                                # Show removed unnamed columns info
+                                st.markdown("""
+                                <div class="alert-info">
+                                    ℹ️ <strong>Note:</strong> All unnamed columns have been removed.
+                                </div>
+                                """, unsafe_allow_html=True)
+                            else:
+                                st.markdown("""
+                                <div class="alert-info">
+                                    ℹ️ <strong>No data extracted</strong> from this sheet.
+                                </div>
+                                """, unsafe_allow_html=True)
+                    
+                    # Show processed combined data
+                    st.markdown("### 🔄 Processed Combined Data")
+                    st.dataframe(processed_data, use_container_width=True, hide_index=True)
+                    
+                    # Download options
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Download processed data as Excel
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            processed_data.to_excel(writer, index=False, sheet_name='Processed Data')
+                        output.seek(0)
+                        
+                        st.download_button(
+                            label="⬇️ Download Processed Excel",
+                            data=output,
+                            file_name="Processed_Excel_Data.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        # If styles were found and PDF is uploaded, offer merged PDF
+                        if styles and pdf_file_merger:
+                            styles_pdf = create_styles_pdf(styles)
+                            final_pdf = merge_pdfs(pdf_file_merger, styles_pdf)
+                            
+                            st.download_button(
+                                label="⬇️ Download Merged PDF",
+                                data=final_pdf,
+                                file_name="Merged-PO.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        elif styles and not pdf_file_merger:
+                            st.info("Upload a PDF file to merge with extracted styles")
+                else:
+                    st.markdown("""
+                    <div class="alert-warning">
+                        ⚠️ <strong>Warning:</strong> No valid table data found in any sheet.
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class="alert-warning">
+                    ⚠️ <strong>Warning:</strong> No valid table data found in the Excel file.
+                </div>
+                """, unsafe_allow_html=True)
+    else:
         st.markdown("""
         <div class="alert-info">
-            ℹ️ <strong>Info:</strong> Please upload both Excel and PDF files to proceed with merging.
+            ℹ️ <strong>Info:</strong> Please upload an Excel file to extract table data.
         </div>
         """, unsafe_allow_html=True)
+
 # -------------------- Main Analysis Section --------------------
 if selected_user and wo_file and po_file:
-    # Add debug section for PO address extraction
     with st.expander("🔍 Debug PO Address Extraction"):
         st.write("### PO Address Extraction Debug Information")
         debug_po_extraction(po_file)
     
-    # Show progress
     st.markdown(show_progress_steps(2), unsafe_allow_html=True)
     
     with st.spinner("🔄 Processing files and analyzing data..."):
@@ -1679,28 +1903,23 @@ if selected_user and wo_file and po_file:
         po_details = reorder_po_by_size(po_details_raw)
         addr_res = compare_addresses(wo, po)
         code_res = compare_codes(po_details, wo_items)
-        # Default to Enhanced Matching
         matched, mismatched = enhanced_quantity_matching(wo_items, po_details)
-        
-        # Extract PO Number
         po_number = extract_po_number(po_file)
     
-    # Show completion
     st.markdown(show_progress_steps(4), unsafe_allow_html=True)
     
-    # Success message
     st.markdown("""
     <div class="alert-success">
         🎉 <strong>Analysis Complete!</strong> Your files have been processed successfully.
     </div>
     """, unsafe_allow_html=True)
     
-    # -------------------- Key Metrics Dashboard --------------------
     st.markdown("""
     <div class="section-header">
         <h2 class="section-title">📊 Analysis Overview</h2>
     </div>
     """, unsafe_allow_html=True)
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -1739,7 +1958,6 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Address Comparison --------------------
     st.markdown("""
     <div class="section-header">
         <h3 class="section-title">🏠 Address Verification</h3>
@@ -1762,12 +1980,12 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Product Code Comparison --------------------
     st.markdown("""
     <div class="section-header">
         <h3 class="section-title">🔢 Product Code Analysis</h3>
     </div>
     """, unsafe_allow_html=True)
+    
     po_all_codes = [po.get("Product_Code", "").strip().upper() for po in po_details if po.get("Product_Code")]
     wo_all_codes = [wo.get("WO Product Code", "").strip().upper() for wo in wo_items if wo.get("WO Product Code")]
     comparison_rows = []
@@ -1795,16 +2013,15 @@ if selected_user and wo_file and po_file:
     code_table_df = pd.DataFrame(comparison_rows)
     st.dataframe(code_table_df, use_container_width=True, hide_index=True)
     
-    # -------------------- Item Matching Results --------------------
     st.markdown("""
     <div class="section-header">
         <h3 class="section-title">📋 Matching other items</h3>
     </div>
     """, unsafe_allow_html=True)
+    
     if matched:
         matched_df = pd.DataFrame(matched)
         st.dataframe(matched_df, use_container_width=True, hide_index=True)
-        
         perfect_matches = len([m for m in matched if "Full Match" in m.get("Status", "")])
         if perfect_matches == len(matched):
             st.markdown("""
@@ -1819,17 +2036,37 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Final Status Check --------------------
+    # New section: Additional Data
+    st.markdown("""
+    <div class="section-header">
+        <h3 class="section-title">📊 Additional Data</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display WO Items table
+    st.markdown("### 📄 Work Order (WO) Items")
+    wo_df = pd.DataFrame(wo_items)
+    st.dataframe(wo_df, use_container_width=True, hide_index=True)
+    
+    # Display Processed Combined Data from Excel extraction right after WO Items
+    st.markdown("### 📊 Processed Combined Data from Excel")
+    if hasattr(st.session_state, 'processed_excel_data') and st.session_state.processed_excel_data is not None:
+        st.dataframe(st.session_state.processed_excel_data, use_container_width=True, hide_index=True)
+    else:
+        st.markdown("""
+        <div class="alert-info">
+            ℹ️ <strong>Info:</strong> No Excel data processed yet. Please upload and process an Excel file in the "Excel Table Data Extractor" section.
+        </div>
+        """, unsafe_allow_html=True)
+    
     address_ok = addr_res.get("Status", "") == "✅ Match"
     codes_ok = not code_table_df.empty and all(code_table_df["🔍 Match Status"].isin(["✅ Exact Match", "✅ Partial Match"]))
     matched_df = pd.DataFrame(matched) if matched else pd.DataFrame()
     matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
     mismatched_empty = len(mismatched) == 0
     
-    # Determine match status
     if address_ok and codes_ok and matched_ok and mismatched_empty:
         match_status = "PERFECT MATCH!"
-        # Play success sound
         st.markdown("""
         <audio autoplay>
             <source src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" type="audio/mpeg">
@@ -1844,6 +2081,7 @@ if selected_user and wo_file and po_file:
         
         st.balloons()
         st.balloons()
+        
     else:
         match_status = "NOT PERFECT"
         st.markdown("""
@@ -1852,13 +2090,10 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Collect Data for Text Logging --------------------
-    # Collect product codes
     wo_product_codes = []
     for item in wo_items:
         code = item.get("WO Product Code", "")
         if code:
-            # Handle case where code might be a list
             if isinstance(code, list):
                 for c in code:
                     if c and c.strip():
@@ -1866,28 +2101,22 @@ if selected_user and wo_file and po_file:
             elif code.strip():
                 wo_product_codes.append(code.strip().upper())
     
-    # Collect style numbers (references)
     references = []
-    # Add style numbers from PO
     extracted_styles = extract_style_numbers_from_po_first_page(po_file)
     if extracted_styles:
         references.extend(extracted_styles)
-    # Add style numbers from WO
     for item in wo_items:
         style = item.get("Style", "")
         if style and style not in references:
             references.append(style)
-    # Add style numbers from PO details
     for item in po_details:
         style = item.get("Style 2", "")
         if style and style not in references:
             references.append(style)
     
-    # Get first product code and first reference
     first_product_code = wo_product_codes[0] if wo_product_codes else ""
     first_reference = references[0] if references else ""
     
-    # Auto-log to text file when files are uploaded
     with st.spinner("📊 Logging report to text file..."):
         success, message = log_to_text(selected_user, first_product_code, first_reference, match_status, po_number)
         if success:
@@ -1895,7 +2124,6 @@ if selected_user and wo_file and po_file:
         else:
             st.error(message)
     
-    # -------------------- Mismatched Items Summary --------------------
     st.markdown("""
     <div class="section-header">
         <h3 class="section-title">❗ Mismatch Summary</h3>
@@ -1903,7 +2131,6 @@ if selected_user and wo_file and po_file:
     """, unsafe_allow_html=True)
     
     if mismatched:
-        # Create a summary of mismatches
         st.markdown(f"""
         <div class="mismatch-summary">
             <h4>⚠️ Mismatch Detected</h4>
@@ -1911,20 +2138,14 @@ if selected_user and wo_file and po_file:
             <p>Below is an example of one mismatched item:</p>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Show only the first mismatched item as an example
         first_mismatched = mismatched[0]
         mismatch_df = pd.DataFrame([first_mismatched])
-        
         st.markdown("""
         <div class="mismatch-example">
             <h5>Example Mismatched Item:</h5>
         </div>
         """, unsafe_allow_html=True)
-        
         st.dataframe(mismatch_df, use_container_width=True, hide_index=True)
-        
-        # Add expander to see all mismatched items
         with st.expander("View All Mismatched Items"):
             all_mismatched_df = pd.DataFrame(mismatched)
             st.dataframe(all_mismatched_df, use_container_width=True, hide_index=True)
@@ -1935,19 +2156,17 @@ if selected_user and wo_file and po_file:
         </div>
         """, unsafe_allow_html=True)
     
-    # -------------------- Detailed Data Tables --------------------
     with st.expander("📊 Detailed Data Tables", expanded=False):
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("### 📄 Work Order (WO) Items")
             wo_df = pd.DataFrame(wo_items)
             st.dataframe(wo_df, use_container_width=True, hide_index=True)
-        
         with col2:
             st.markdown("### 📋 Purchase Order (PO) Items")
             po_df = pd.DataFrame(po_details)
             st.dataframe(po_df, use_container_width=True, hide_index=True)
+
 # -------------------- Footer --------------------
 st.markdown("""
 <div class="footer">
