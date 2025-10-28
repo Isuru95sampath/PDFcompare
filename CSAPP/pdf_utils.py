@@ -336,6 +336,37 @@ def extract_wo_fields(pdf_file):
         "po_numbers": po_numbers
     }
 
+def extract_size_from_cell(cell_text):
+    """
+    Extract size information from a cell that might contain newlines or special formatting.
+    Handles cases like "XS/\nXP", "XL/\nXG", "XXL", etc.
+    """
+    if not cell_text:
+        return ""
+    
+    # Convert to string and normalize whitespace
+    text = str(cell_text).strip()
+    
+    # If there's a newline, process each line
+    if "\n" in text:
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        
+        # Check for patterns like ["XS/", "XP"] or ["XL/", "XG"]
+        if len(lines) >= 2 and lines[0].endswith("/"):
+            # Combine the parts without space
+            return lines[0] + lines[1]
+        
+        # Check for patterns like ["XS", "/XP"] or ["XL", "/XG"]
+        if len(lines) >= 2 and lines[1].startswith("/"):
+            # Combine the parts without space
+            return lines[0] + lines[1]
+        
+        # If no special pattern, just join with no space
+        return "".join(lines)
+    
+    # If no newline, return as is
+    return text
+
 def extract_po_fields(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
@@ -769,8 +800,19 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                         style = str(row[column_positions.get("style", 0)] or "").strip()
                         color_code = str(row[column_positions.get("color_code", 1)] or "").strip().upper()
                         
-                        # Handle size extraction with special care for combined sizes and multi-line sizes
-                        size1_raw = str(row[column_positions.get("size1", 2)] or "").strip()
+                        # Extract size1 with special handling for multi-line cells
+                        size1_raw = str(row[column_positions.get("size1", 2)] or "")
+                        size1 = extract_size_from_cell(size1_raw)
+
+                        # If we didn't get a valid size, try to find it in other cells
+                        if not size1 or not any(size in size1.upper() for size in ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "XG", "P", "G"]):
+                            # Check each cell for size patterns
+                            for cell in row:
+                                cell_str = str(cell) if cell is not None else ""
+                                extracted_size = extract_size_from_cell(cell_str)
+                                if any(size in extracted_size.upper() for size in ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXG", "XG", "P", "G"]):
+                                    size1 = extracted_size
+                                    break
                         
                         # Check if the size cell contains a newline (like "XS\nXP")
                         if "\n" in size1_raw:
@@ -841,10 +883,10 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                                 "WO Product Code": " / ".join(product_codes) if product_codes else ""
                             }
                             
-                            # Add optional fields if they exist
+                            # Extract size2 with special handling for multi-line cells
                             if "size2" in column_positions:
-                                size2_raw = str(row[column_positions["size2"]] or "").strip()
-                                # Check if the size2 cell contains a newline
+                                size2_raw = str(row[column_positions["size2"]] or "")
+                                item_data["Size 2"] = extract_size_from_cell(size2_raw)
                                 if "\n" in size2_raw:
                                     # Split by newline and process each part
                                     size_parts = size2_raw.split("\n")
@@ -906,28 +948,28 @@ def extract_wo_items_table(pdf_file, product_codes=None):
             
             # First, normalize the line by removing extra spaces and handling newlines
             normalized_line = re.sub(r'\s+', ' ', line)
-            
-            # Try to match the pattern
-            pattern = r'(\d{8})\s+([A-Z0-9]+)\s+(XS/XP|S/P|M/M|L/G|XL/XG|XXL|XXXL|XXG|XG|XS|S|M|L|XL|P|G)\s+\$[\d.]+\s+\$[\d.]+\s+\d+\s+\d+\s+(\d{1,4}(?:,\d{3})*)'
+        
+            # Try to match the pattern with better size handling
+            pattern = r'(\d{8})\s+([A-Z0-9]+)\s+([A-Z]{2}(?:/[A-Z]{2})?)\s+\$[\d.]+\s+\$[\d.]+\s+\d+\s+\d+\s+(\d{1,4}(?:,\d{3})*)'
             match = re.search(pattern, normalized_line)
-            
+
             if match:
                 style = match.group(1)
                 color_code = match.group(2)
-                size = match.group(3)
+                size = match.group(3)  # This will capture sizes like "XS/XP", "XL/XG", "XXL"
                 quantity = match.group(4).replace(',', '')
                 
                 try:
                     items.append({
                         "Style": style,
                         "WO Colour Code": color_code.upper(),
-                        "Size 1": clean_size(size),
+                        "Size 1": size,
                         "Quantity": int(quantity),
                         "WO Product Code": " / ".join(product_codes) if product_codes else ""
                     })
                 except ValueError:
                     continue
-    
+                
     # Aggregate quantities for items with same style, color code, and size
     aggregated_items = {}
     for item in items:
@@ -1318,3 +1360,210 @@ def extract_all_po_product_codes(pdf_file):
     except Exception as e:
         st.error(f"Error extracting PO product codes: {e}")
         return []
+    
+def check_vsba_in_po_line(pdf_file):
+    """
+    Check if "VSBA" appears in the same line as the PO number in the PO PDF.
+    Returns True if VSBA is found in the same line as the PO number, False otherwise.
+    """
+    try:
+        # First, extract the PO number
+        po_number = extract_po_number(pdf_file)
+        if not po_number:
+            return False
+        
+        # Now, search for the line containing the PO number
+        pdf_file.seek(0)
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    lines = text.split('\n')
+                    for line in lines:
+                        # Check if this line contains the PO number
+                        if po_number in line:
+                            # Now check if "VSBA" is in the same line
+                            if "VSBA" in line.upper():
+                                return True
+        
+        return False
+        
+    except Exception as e:
+        st.error(f"Error checking VSBA in PO line: {e}")
+        return False
+    
+def extract_item_description_product_code_and_check_vsba(pdf_file):
+    """
+    Extract the product code from the second line under "Item Description" in the PO PDF.
+    Also checks if "VSBA" is present at the end of the product code.
+    Returns a tuple: (product_code, vsba_found)
+    """
+    try:
+        pdf_file.seek(0)
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    lines = text.split('\n')
+                    for i, line in enumerate(lines):
+                        # Look for "Item Description" line
+                        if "Item Description" in line:
+                            # The product code should be in the next line (i+1)
+                            if i + 1 < len(lines):
+                                next_line = lines[i+1].strip()
+                                # Check if this line contains a product code pattern
+                                # Example: AG.PRC.TKT_PILB 497_REG_L47.625XW28.575mm-336593-VSBA
+                                if next_line and ("PRC.TKT" in next_line or "AG.PRC.TKT" in next_line):
+                                    # Check if VSBA is at the end
+                                    vsba_found = next_line.upper().endswith("VSBA")
+                                    return next_line, vsba_found
+        return "", False
+    except Exception as e:
+        
+        st.error(f"Error extracting item description product code: {e}")
+        return "", False
+
+def extract_wo_product_code_with_vsba(pdf_file):
+    """
+    Extract WO product codes and check if they contain VSBA.
+    Returns a dictionary with product code and VSBA status.
+    """
+    try:
+        pdf_file.seek(0)
+        with pdfplumber.open(pdf_file) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        
+        lines = text.split("\n")
+        wo_codes_with_vsba = []
+        
+        for line in lines:
+            # Look for "Product Code" line
+            if "Product Code" in line:
+                # Extract everything after "Product Code:"
+                code_match = re.search(r"Product Code[:\s]*(.*)", line, re.IGNORECASE)
+                if code_match:
+                    full_code_line = code_match.group(1).strip()
+                    
+                    # Check if VSBA is present in the line
+                    has_vsba = "VSBA" in full_code_line.upper()
+                    
+                    # Clean the code (remove extra spaces, etc.)
+                    cleaned_code = full_code_line.strip()
+                    
+                    wo_codes_with_vsba.append({
+                        "Full_Code_Line": full_code_line,
+                        "Cleaned_Code": cleaned_code,
+                        "Has_VSBA": has_vsba,
+                        "VSBA_Status": "✅ VSBA Found" if has_vsba else "❌ No VSBA"
+                    })
+        
+        return wo_codes_with_vsba
+        
+    except Exception as e:
+        
+        st.error(f"Error extracting WO product code with VSBA: {e}")
+        return []
+
+
+def extract_po_product_code_with_vsba(pdf_file):
+    """
+    Extract PO product codes from multiple patterns and check if they contain VSBA.
+    Returns a dictionary with product code and VSBA status.
+    """
+    try:
+        pdf_file.seek(0)
+        with pdfplumber.open(pdf_file) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        
+        lines = text.split("\n")
+        po_codes_with_vsba = []
+        
+        # Pattern 1: Look for "Sup. Ref." or "Supplier Reference"
+        for line in lines:
+            # Sup. Ref. pattern
+            sup_ref_match = re.search(r"Sup\.?\s*Ref\.?\s*[:\-]?\s*(.+)", line, re.IGNORECASE)
+            if sup_ref_match:
+                full_code_line = sup_ref_match.group(1).strip()
+                
+                # Check if VSBA is present
+                has_vsba = "VSBA" in full_code_line.upper()
+                
+                po_codes_with_vsba.append({
+                    "Source": "Supplier Reference",
+                    "Full_Code_Line": full_code_line,
+                    "Has_VSBA": has_vsba,
+                    "VSBA_Status": "✅ VSBA Found" if has_vsba else "❌ No VSBA"
+                })
+        
+        # Pattern 2: Look for TAG.PRC.TKT patterns
+        tag_prc_matches = re.findall(r"(TAG\.PRC\.TKT_[^_]+_[^_]+[^\s]*)", text)
+        for match in tag_prc_matches:
+            full_code_line = match.strip()
+            has_vsba = "VSBA" in full_code_line.upper()
+            
+            po_codes_with_vsba.append({
+                "Source": "TAG.PRC.TKT",
+                "Full_Code_Line": full_code_line,
+                "Has_VSBA": has_vsba,
+                "VSBA_Status": "✅ VSBA Found" if has_vsba else "❌ No VSBA"
+            })
+        
+        # Pattern 3: Look for TAG.HANG patterns
+        tag_hang_matches = re.findall(r"(TAG\.HANG_[^_]+_[^_]+[^\s]*)", text)
+        for match in tag_hang_matches:
+            full_code_line = match.strip()
+            has_vsba = "VSBA" in full_code_line.upper()
+            
+            po_codes_with_vsba.append({
+                "Source": "TAG.HANG",
+                "Full_Code_Line": full_code_line,
+                "Has_VSBA": has_vsba,
+                "VSBA_Status": "✅ VSBA Found" if has_vsba else "❌ No VSBA"
+            })
+        
+        # Pattern 4: Look in Item Description section
+        item_desc_match = re.search(r"Item Description[:\s]*\n(.+)", text, re.IGNORECASE)
+        if item_desc_match:
+            full_code_line = item_desc_match.group(1).strip()
+            has_vsba = "VSBA" in full_code_line.upper()
+            
+            po_codes_with_vsba.append({
+                "Source": "Item Description",
+                "Full_Code_Line": full_code_line,
+                "Has_VSBA": has_vsba,
+                "VSBA_Status": "✅ VSBA Found" if has_vsba else "❌ No VSBA"
+            })
+        
+        # Remove duplicates based on Full_Code_Line
+        seen = set()
+        unique_codes = []
+        for code_info in po_codes_with_vsba:
+            if code_info["Full_Code_Line"] not in seen:
+                seen.add(code_info["Full_Code_Line"])
+                unique_codes.append(code_info)
+        
+        return unique_codes
+        
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Error extracting PO product code with VSBA: {e}")
+        return []
+
+
+def compare_vsba_status(wo_vsba_data, po_vsba_data):
+    """
+    Compare VSBA status between WO and PO product codes.
+    Returns a summary dictionary.
+    """
+    wo_has_vsba = any(item["Has_VSBA"] for item in wo_vsba_data)
+    po_has_vsba = any(item["Has_VSBA"] for item in po_vsba_data)
+    
+    return {
+        "WO_VSBA_Found": wo_has_vsba,
+        "PO_VSBA_Found": po_has_vsba,
+        "Both_Have_VSBA": wo_has_vsba and po_has_vsba,
+        "Status": "✅ Both have VSBA" if (wo_has_vsba and po_has_vsba) else 
+                  "⚠️ Only WO has VSBA" if wo_has_vsba else 
+                  "⚠️ Only PO has VSBA" if po_has_vsba else 
+                  "❌ Neither has VSBA"
+    }

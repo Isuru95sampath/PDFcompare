@@ -10,16 +10,36 @@ from auth import setup_sidebar
 from logging_utils import log_to_text
 from excel_utils import read_excel_table, process_excel_table_data
 from pdf_utils import (
-    uploaded_file_to_bytesio, create_styles_pdf, merge_pdfs_with_po,
-    extract_style_numbers_from_po_first_page, extract_po_number, extract_so_number_from_wo,
-    extract_all_so_numbers_from_wo, extract_wo_fields, extract_po_fields,
-    extract_wo_items_table, extract_po_details, reorder_wo_by_size, reorder_po_by_size,
-    debug_po_extraction, compare_addresses
+    uploaded_file_to_bytesio, 
+    create_styles_pdf, 
+    merge_pdfs_with_po,
+    extract_style_numbers_from_po_first_page, 
+    extract_po_number, 
+    extract_so_number_from_wo,
+    extract_all_so_numbers_from_wo, 
+    extract_wo_fields, 
+    extract_po_fields,
+    extract_wo_items_table, 
+    extract_po_details, 
+    reorder_wo_by_size, 
+    reorder_po_by_size,
+    debug_po_extraction, 
+    compare_addresses, 
+    check_vsba_in_po_line,
+    extract_item_description_product_code_and_check_vsba,
+    extract_wo_product_code_with_vsba, 
+    extract_po_product_code_with_vsba,
+    compare_vsba_status
 )
 from data_comparison import (
-    enhanced_quantity_matching, compare_codes, get_excel_style_number, update_po_details_with_excel_styles,
-    update_matched_items_with_excel_styles, combine_wo_and_excel_data,
-    update_so_color_display, clean_product_code,
+    enhanced_quantity_matching, 
+    compare_codes, 
+    get_excel_style_number, 
+    update_po_details_with_excel_styles,
+    update_matched_items_with_excel_styles, 
+    combine_wo_and_excel_data,
+    update_so_color_display, 
+    clean_product_code,
     fill_empty_style_2_from_excel  
 )
 
@@ -137,6 +157,7 @@ def main():
     configure_page()
     apply_custom_css()
     display_header()
+    
     # Setup sidebar and get user selection and uploaded files
     selected_user, wo_file, po_file = setup_sidebar()
     
@@ -353,7 +374,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-        # -------------------- Main Analysis Section --------------------
+    # -------------------- Main Analysis Section --------------------
     if selected_user and wo_file and po_file:
         with st.spinner("🔄 Processing files and analyzing data..."):
             wo = extract_wo_fields(wo_file)
@@ -376,8 +397,13 @@ def main():
             po_number = extract_po_number(po_file)
             so_numbers = extract_all_so_numbers_from_wo(wo_file)
             
+            # NEW: Check if VSBA is in the same line as PO number
+            vsba_in_po_line = check_vsba_in_po_line(po_file)
+            
+            # NEW: Extract product code from Item Description and check for VSBA
+            item_desc_product_code, vsba_in_item_desc = extract_item_description_product_code_and_check_vsba(po_file)
+            
             # NEW: Update Style 2 from Excel if missing from PO
-
             # Fill empty Style 2 values from Excel data if available
             if hasattr(st.session_state, 'processed_excel_data') and st.session_state.processed_excel_data is not None:
                 matched, mismatched = fill_empty_style_2_from_excel(
@@ -444,6 +470,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
+        #Analysis Overview Section
         st.markdown("""
         <div class="section-header">
             <h2 class="section-title">📊 Analysis Overview</h2>
@@ -519,6 +546,70 @@ def main():
         
         # Display the code_table_df that was created earlier
         st.dataframe(code_table_df, use_container_width=True, hide_index=True)
+
+
+         # Extract VSBA information from WO
+        wo_vsba_data = extract_wo_product_code_with_vsba(wo_file)
+        
+        # Extract VSBA information from PO
+        po_vsba_data = extract_po_product_code_with_vsba(po_file)
+        
+        # Compare VSBA status
+        vsba_comparison = compare_vsba_status(wo_vsba_data, po_vsba_data)
+        
+        # Display WO Product Codes with VSBA Status (only first row)
+        st.markdown("#### 📄 Work Order (WO) Product Codes")
+        if wo_vsba_data:
+            # Show only the first row
+            wo_vsba_df = pd.DataFrame([wo_vsba_data[0]])
+            st.dataframe(wo_vsba_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No product codes found in WO")
+        
+        # Display PO Product Codes with VSBA Status (only rows where VSBA is found)
+        st.markdown("#### 📋 Purchase Order (PO) Product Codes")
+        if po_vsba_data:
+            # Filter to show only rows where VSBA is found
+            vsba_found_rows = [item for item in po_vsba_data if item["Has_VSBA"]]
+            
+            if vsba_found_rows:
+                po_vsba_df = pd.DataFrame(vsba_found_rows)
+                st.dataframe(po_vsba_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No product codes with VSBA found in PO")
+        else:
+            st.info("No product codes found in PO")
+        
+        # Display VSBA Comparison Summary
+        st.markdown("#### 📊 VSBA Comparison Summary")
+        vsba_summary_df = pd.DataFrame([{
+            "WO has VSBA": "✅ Yes" if vsba_comparison["WO_VSBA_Found"] else "❌ No",
+            "PO has VSBA": "✅ Yes" if vsba_comparison["PO_VSBA_Found"] else "❌ No",
+            "Overall Status": vsba_comparison["Status"]
+        }])
+        st.dataframe(vsba_summary_df, use_container_width=True, hide_index=True)
+        
+        # Display alert based on VSBA status
+        if vsba_comparison["Both_Have_VSBA"]:
+            st.markdown("""
+            <div class="alert-success">
+                ✅ <strong>VSBA Match:</strong> Both WO and PO contain VSBA in their product codes.
+            </div>
+            """, unsafe_allow_html=True)
+        elif vsba_comparison["WO_VSBA_Found"] or vsba_comparison["PO_VSBA_Found"]:
+            st.markdown("""
+            <div class="alert-warning">
+                ⚠️ <strong>VSBA Mismatch:</strong> VSBA found in only one document. Please verify.
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="alert-info">
+                ℹ️ <strong>No VSBA:</strong> VSBA not found in either WO or PO product codes.
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
         
         st.markdown("""
         <div class="section-header">
@@ -761,7 +852,7 @@ def main():
             """, unsafe_allow_html=True)
             st.dataframe(wo_df, use_container_width=True, hide_index=True)
         
-        # SO Number and WO Color Code section
+                # SO Number and WO Color Code section
         so_color_df = update_so_color_display(so_numbers, wo_items)
         
         # Check for perfect matches in both tables
@@ -785,11 +876,38 @@ def main():
         matched_ok = not matched_df.empty and all(matched_df["Status"] == "🟩 Full Match")
         mismatched_empty = len(mismatched) == 0
 
-        if address_ok and codes_ok and matched_ok and mismatched_empty and combined_perfect_match and so_color_perfect_match:
+        # Check VSBA status for balloon condition - more robust handling
+        vsba_ok = False
+        vsba_status = None
+        
+        # Handle both dictionary and DataFrame cases for vsba_comparison
+        if isinstance(vsba_comparison, dict):
+            vsba_status = vsba_comparison.get("Status", "")
+        elif isinstance(vsba_comparison, pd.DataFrame) and not vsba_comparison.empty:
+            if "Status" in vsba_comparison.columns:
+                # Get the first row's status or check if all rows have the same status
+                vsba_status = vsba_comparison["Status"].iloc[0]
+            elif "Overall Status" in vsba_comparison.columns:
+                vsba_status = vsba_comparison["Overall Status"].iloc[0]
+        
+        # Check VSBA conditions
+        if vsba_status == "✅ Both have VSBA":
+            vsba_ok = True
+        elif vsba_status == "❌ Neither has VSBA":
+            vsba_ok = True
+        else:
+            vsba_ok = False
+            
+        # Debug: Uncomment these lines to see what's happening
+        # st.write(f"VSBA Status: {vsba_status}")
+        # st.write(f"VSBA OK: {vsba_ok}")
+
+        # Updated condition: All checks must pass AND VSBA condition must be satisfied
+        if address_ok and codes_ok and matched_ok and mismatched_empty and combined_perfect_match and so_color_perfect_match and vsba_ok:
             match_status = "PERFECT MATCH!"
             st.markdown("""
             <audio autoplay>
-                <source src="https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3" type="audio/mpeg">
+                <source src="">
             </audio>
             """, unsafe_allow_html=True)
             
@@ -804,9 +922,30 @@ def main():
             
         else:
             match_status = "NOT PERFECT"
-            st.markdown("""
+            
+            # Create a detailed mismatch message
+            issues = []
+            if not address_ok:
+                issues.append("Address mismatch")
+            if not codes_ok:
+                issues.append("Product code mismatch")
+            if not matched_ok or not mismatched_empty:
+                issues.append("Item matching issues")
+            if not combined_perfect_match:
+                issues.append("WO/Excel data mismatch")
+            if not so_color_perfect_match:
+                issues.append("SO/Color mismatch")
+            if not vsba_ok:
+                if vsba_status:
+                    issues.append(f"VSBA mismatch (Status: {vsba_status})")
+                else:
+                    issues.append("VSBA mismatch (status not found)")
+            
+            issues_text = ", ".join(issues) if issues else "Some data points need verification"
+            
+            st.markdown(f"""
             <div class="alert-warning">
-                ⚠️ <strong>Review Required:</strong> Some data points need manual verification. Check the details below.
+                ⚠️ <strong>Review Required:</strong> {issues_text}. Check the details below.
             </div>
             """, unsafe_allow_html=True)
         
