@@ -934,29 +934,22 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                 if text:
                     full_text += text + "\n"
         
-        # Try to find patterns in the text
-        # Look for lines that contain style, color, size, and quantity
+        # Try the existing pattern first
         lines = full_text.split('\n')
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             
-            # Pattern: 8-digit style, then alphanumeric code, then size, then numbers
-            # Example: 11276771 91S3 XS/ XP $14.50 $14.50 0198765613549 27184055 1605
-            # We need to handle the space in "XS/ XP" and also newlines
-            
-            # First, normalize the line by removing extra spaces and handling newlines
+            # Existing pattern - keep this unchanged
             normalized_line = re.sub(r'\s+', ' ', line)
-        
-            # Try to match the pattern with better size handling
             pattern = r'(\d{8})\s+([A-Z0-9]+)\s+([A-Z]{2}(?:/[A-Z]{2})?)\s+\$[\d.]+\s+\$[\d.]+\s+\d+\s+\d+\s+(\d{1,4}(?:,\d{3})*)'
             match = re.search(pattern, normalized_line)
 
             if match:
                 style = match.group(1)
                 color_code = match.group(2)
-                size = match.group(3)  # This will capture sizes like "XS/XP", "XL/XG", "XXL"
+                size = match.group(3)
                 quantity = match.group(4).replace(',', '')
                 
                 try:
@@ -969,6 +962,85 @@ def extract_wo_items_table(pdf_file, product_codes=None):
                     })
                 except ValueError:
                     continue
+        
+        # If still no items, try the new pattern for this specific WO format
+        if not items:
+            # Split the text into work order sections
+            wo_sections = re.split(r'Order Header Details: \*SW(\d{8})W\*', full_text)
+            
+            # Skip the first section (before the first WO header)
+            for section in wo_sections[1:]:
+                # Find the table section
+                table_start = section.find('Size/Age Breakdown:')
+                if table_start == -1:
+                    continue
+                
+                table_text = section[table_start + len('Size/Age Breakdown:'):].strip()
+                
+                # Split into lines and process
+                table_lines = [line.strip() for line in table_text.split('\n') if line.strip()]
+                
+                i = 0
+                while i < len(table_lines):
+                    line = table_lines[i]
+                    
+                    # Check if this line starts with a style number (8 digits)
+                    style_match = re.match(r'^(\d{8})\s+([A-Z0-9]+)\s*(.*)', line)
+                    if style_match:
+                        style = style_match.group(1)
+                        color_code = style_match.group(2)
+                        rest = style_match.group(3)
+                        
+                        # Handle size that might be split across lines
+                        size = ""
+                        quantity = ""
+                        
+                        # Try to find size in the current line
+                        size_match = re.search(r'([A-Z]{2}(?:/[A-Z]{2})?)', rest)
+                        if size_match:
+                            size = size_match.group(1)
+                            # Look for quantity in the rest of the line
+                            qty_match = re.search(r'(\d{1,4}(?:,\d{3})*)\s*$', rest[size_match.end():])
+                            if qty_match:
+                                quantity = qty_match.group(1)
+                        
+                        # If we didn't find both size and quantity, check the next line
+                        if (not size or not quantity) and i+1 < len(table_lines):
+                            next_line = table_lines[i+1]
+                            
+                            # If size wasn't found, look for it in the next line
+                            if not size:
+                                next_size_match = re.search(r'^([A-Z]{2}(?:/[A-Z]{2})?)', next_line)
+                                if next_size_match:
+                                    size = next_size_match.group(1)
+                                    # Look for quantity in the rest of the next line
+                                    next_qty_match = re.search(r'(\d{1,4}(?:,\d{3})*)\s*$', next_line[next_size_match.end():])
+                                    if next_qty_match:
+                                        quantity = next_qty_match.group(1)
+                            # If size was found but quantity wasn't, look for quantity in the next line
+                            elif not quantity:
+                                next_qty_match = re.search(r'(\d{1,4}(?:,\d{3})*)\s*$', next_line)
+                                if next_qty_match:
+                                    quantity = next_qty_match.group(1)
+                            
+                            # If we found something in the next line, skip it
+                            if (size and quantity) or (not size and next_size_match) or (not quantity and next_qty_match):
+                                i += 1
+                        
+                        # If we found both size and quantity, add the item
+                        if size and quantity:
+                            try:
+                                items.append({
+                                    "Style": style,
+                                    "WO Colour Code": color_code.upper(),
+                                    "Size 1": size,
+                                    "Quantity": int(quantity.replace(',', '')),
+                                    "WO Product Code": " / ".join(product_codes) if product_codes else ""
+                                })
+                            except ValueError:
+                                pass
+                    
+                    i += 1
                 
     # Aggregate quantities for items with same style, color code, and size
     aggregated_items = {}
@@ -1545,7 +1617,7 @@ def extract_po_product_code_with_vsba(pdf_file):
         return unique_codes
         
     except Exception as e:
-        import streamlit as st
+        
         st.error(f"Error extracting PO product code with VSBA: {e}")
         return []
 
