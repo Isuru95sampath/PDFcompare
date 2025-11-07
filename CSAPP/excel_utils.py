@@ -1,4 +1,5 @@
 from turtle import st
+import streamlit as st
 import pandas as pd
 import re
 from io import BytesIO
@@ -112,6 +113,10 @@ def read_excel_table(excel_file):
     except Exception as e:
         st.error(f"Error reading Excel file: {str(e)}")
         return []
+    
+
+print(f"Type of st: {type(st)}")
+print(f"st module: {st}")
 
 def process_excel_table_data(all_table_data):
     """Process Excel table data into a single table format"""

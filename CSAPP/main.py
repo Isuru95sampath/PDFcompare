@@ -410,10 +410,15 @@ def main():
                     matched, mismatched, st.session_state.processed_excel_data
                 )
 
-            # Get Excel style number (if available) - but don't merge into PO items
+            # Get Excel style number (if available)
             excel_style_number = None
             if hasattr(st.session_state, 'processed_excel_data') and st.session_state.processed_excel_data is not None:
                 excel_style_number = get_excel_style_number(st.session_state.processed_excel_data)
+
+            # ...
+
+            # Update the call to enhanced_quantity_matching to include the excel_style_number
+            matched, mismatched = enhanced_quantity_matching(wo_items, po_details, tolerance=0, excel_style=excel_style_number)
             
             # Check if PO has style numbers
             po_has_styles = any(po_item.get("Style 2", "") for po_item in po_details)
@@ -744,7 +749,7 @@ def main():
         # New section: Combined Data
         st.markdown("""
         <div class="section-header">
-            <h3 class="section-title">📊 Combined WO and Excel Data (Sorted by Size)</h3>
+            <h3 class="section-title">📊 Combined WO and Excel Data </h3>
         </div>
         """, unsafe_allow_html=True)
         

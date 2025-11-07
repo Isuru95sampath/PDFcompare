@@ -3,7 +3,7 @@ import pandas as pd
 import re
 from fuzzywuzzy import fuzz
 
-def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
+def enhanced_quantity_matching(wo_items, po_details, tolerance=0, excel_style=None):
     matched, mismatched = [], []
     used = set()
     for wo in wo_items:
@@ -21,6 +21,11 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
+            
+            # If Style 2 is empty and we have an Excel style, use it for comparison
+            if not pstyle and excel_style:
+                pstyle = excel_style
+            
             if wq == pq and ws == ps and wc == pc and wstyle == pstyle:
                 matched.append({
                     "Style": wstyle, "Style 2": pstyle,
@@ -44,7 +49,11 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
                     score += 1
                 if wc == pc:
                     score += 1
-                if wstyle == pstyle:
+                # If Style 2 is empty and we have an Excel style, use it for comparison
+                if not pstyle and excel_style:
+                    if wstyle == excel_style:
+                        score += 1
+                elif wstyle == pstyle:
                     score += 1
                 if score > partial_match_score:
                     partial_match_score = score
@@ -57,10 +66,19 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
+            
+            # If Style 2 is empty and we have an Excel style, use it for comparison
+            if not pstyle and excel_style:
+                pstyle = excel_style
+            
             qty_match = "👍 Yes" if abs(pq - wq) <= tolerance else "❌ No"
             size_match = "👍 Yes" if ws == ps else "❌ No"
             colour_match = "👍 Yes" if wc == pc else "❌ No"
-            style_match = "👍 Yes" if wstyle == pstyle else "❌ No"
+            # If Style 2 is empty and we have an Excel style, use it for comparison
+            if not po.get("Style 2", "").strip() and excel_style:
+                style_match = "👍 Yes" if wstyle == excel_style else "❌ No"
+            else:
+                style_match = "👍 Yes" if wstyle == pstyle else "❌ No"
             matched.append({
                 "Style": wstyle, "Style 2": pstyle,
                 "WO Size": ws, "PO Size": ps,
@@ -88,6 +106,11 @@ def enhanced_quantity_matching(wo_items, po_details, tolerance=0):
             ps = po.get("Size", "").strip().upper()
             pc = po.get("Colour_Code", "").strip().upper()
             pstyle = po.get("Style 2", "").strip()
+            
+            # If Style 2 is empty and we have an Excel style, use it for comparison
+            if not pstyle and excel_style:
+                pstyle = excel_style
+            
             pq = po["Quantity"]
             mismatched.append({
                 "Style": "", "Style 2": pstyle,
@@ -147,24 +170,6 @@ def fill_empty_style_2_from_excel(matched_items, mismatched_items, processed_exc
         updated_mismatched.append(updated_item)
     
     return updated_matched, updated_mismatched  
-    
-    # Update matched items with Excel style only if Style 2 is empty
-    updated_matched = []
-    for item in matched_items:
-        updated_item = item.copy()
-        if not updated_item.get('Style 2', ''):
-            updated_item['Style 2'] = excel_style
-        updated_matched.append(updated_item)
-    
-    # Update mismatched items with Excel style only if Style 2 is empty
-    updated_mismatched = []
-    for item in mismatched_items:
-        updated_item = item.copy()
-        if not updated_item.get('Style 2', ''):
-            updated_item['Style 2'] = excel_style
-        updated_mismatched.append(updated_item)
-    
-    return updated_matched, updated_mismatched
 
 def compare_codes(po_details, wo_items, po_product_codes_from_item=None):
     po_codes = set()
@@ -246,48 +251,6 @@ def update_matched_items_with_excel_styles(matched_items, mismatched_items, proc
     """Update matched and mismatched items with style numbers from processed Excel data - DISABLED"""
     # Return items unchanged - style number is displayed separately at the top
     return matched_items, mismatched_items
-    
-    # Get the first style number from processed Excel data
-    first_style = None
-    for _, row in processed_data.iterrows():
-        style = str(row.get('Style', '')).strip()
-        if style:
-            first_style = style
-            break  # Only get the first style number
-    
-    # If no style found, return original items
-    if not first_style:
-        return matched_items, mismatched_items
-    
-    # Update only the first matched item with the style number
-    updated_matched = []
-    for i, item in enumerate(matched_items):
-        # Create a copy of the item
-        updated_item = item.copy()
-        
-        # Only update the first item
-        if i == 0:
-            # If Style 2 is empty, update it with the first style from Excel
-            if not updated_item.get('Style 2', ''):
-                updated_item['Style 2'] = first_style
-        
-        updated_matched.append(updated_item)
-    
-    # Update only the first mismatched item with the style number
-    updated_mismatched = []
-    for i, item in enumerate(mismatched_items):
-        # Create a copy of the item
-        updated_item = item.copy()
-        
-        # Only update the first item
-        if i == 0:
-            # If Style 2 is empty and we have WO data, update it with the first style from Excel
-            if not updated_item.get('Style 2', '') and item.get('Style'):
-                updated_item['Style 2'] = first_style
-        
-        updated_mismatched.append(updated_item)
-    
-    return updated_matched, updated_mismatched
 
 def extract_style_from_excel(processed_data):
     """Extract the first style number from processed Excel data"""
@@ -332,7 +295,6 @@ def combine_wo_and_excel_data(wo_df, excel_df):
             'Style': 'Style',
             'WO Colour Code': 'Colour Code',
             'Size 1': 'Size',
-            'Quantity': 'Quantity',
             'Article': 'Article'
         }
         
@@ -340,7 +302,6 @@ def combine_wo_and_excel_data(wo_df, excel_df):
             'Style': 'Style',
             'Colour Code': 'Colour Code',
             'Size': 'Size',
-            'Quantity': 'Quantity',
             'Article': 'Article'
         }
         
@@ -388,22 +349,8 @@ def combine_wo_and_excel_data(wo_df, excel_df):
                 if col != 'WO Product Code':
                     combined_df.at[wo_idx, f"WO {col}"] = wo_combined.at[wo_idx, col]
         
-        # Process Excel-only rows
-        excel_only_keys = set(excel_key_to_idx.keys()) - matching_keys
-        next_idx = combined_df.index.max() + 1 if not combined_df.empty else 0
-        for key in excel_only_keys:
-            excel_idx = excel_key_to_idx[key]
-            
-            # Initialize WO columns with None
-            for col in wo_combined.columns:
-                if col != 'WO Product Code':
-                    combined_df.at[next_idx, f"WO {col}"] = None
-            
-            # Add Excel data
-            for col in excel_combined.columns:
-                combined_df.at[next_idx, f"Excel {col}"] = excel_combined.at[excel_idx, col]
-            
-            next_idx += 1
+        # REMOVED: Process Excel-only rows section
+        # This section has been removed to exclude Excel-only rows from the combined dataframe
         
         # Clean up the dataframe
         combined_df = combined_df.dropna(how='all').reset_index(drop=True)
@@ -419,7 +366,6 @@ def combine_wo_and_excel_data(wo_df, excel_df):
         columns_to_clean = [
             'WO SKU', 'Excel SKU',
             'WO Article', 'Excel Article',
-            'WO Quantity', 'Excel Quantity'
         ]
         
         for col in columns_to_clean:
@@ -498,20 +444,6 @@ def combine_wo_and_excel_data(wo_df, excel_df):
                 excel_str = remove_leading_zeros(clean_decimal_values(excel_sku)).strip().upper()
                 combined_df.at[idx, "Match SKU"] = "👍 Yes" if wo_str == excel_str else "❌"
         
-        # Compare Quantity
-        combined_df["Match Quantity"] = None
-        for idx, row in combined_df.iterrows():
-            wo_qty = row.get("WO Quantity", None)
-            excel_qty = row.get("Excel Quantity", None)
-            
-            if pd.isna(wo_qty) and pd.isna(excel_qty):
-                combined_df.at[idx, "Match Quantity"] = "👍 Yes"
-            elif pd.isna(wo_qty) or pd.isna(excel_qty):
-                combined_df.at[idx, "Match Quantity"] = "❌"
-            else:
-                wo_str = str(wo_qty).strip()
-                excel_str = str(excel_qty).strip()
-                combined_df.at[idx, "Match Quantity"] = "👍 Yes" if wo_str == excel_str else "❌"
         
         # Calculate Overall Match - UPDATED LOGIC
         for idx, row in combined_df.iterrows():
@@ -520,7 +452,7 @@ def combine_wo_and_excel_data(wo_df, excel_df):
             match_size = row.get("Match Size", None)
             match_article = row.get("Match Article", None)
             match_sku = row.get("Match SKU", None)
-            match_quantity = row.get("Match Quantity", None)
+           
             
             # Check if we have data in both WO and Excel
             has_wo_data = any(not pd.isna(row.get(f"WO {col}", None)) for col in ['Colour Code', 'Size 1', 'Quantity', 'SKU', 'Article'] if f"WO {col}" in row.index or "WO WO Colour Code" in row.index)
@@ -537,8 +469,7 @@ def combine_wo_and_excel_data(wo_df, excel_df):
                     all_matches.append(match_article)
                 if match_sku is not None:
                     all_matches.append(match_sku)
-                if match_quantity is not None:
-                    all_matches.append(match_quantity)
+              
                 
                 # If ALL comparisons are ✅, then Full Match, otherwise Mismatch
                 if all_matches and all(val == "👍 Yes" for val in all_matches):
@@ -637,65 +568,77 @@ def combine_wo_and_excel_data(wo_df, excel_df):
 
 def update_so_color_display(so_numbers, wo_items):
     """
-    Display WO color codes alongside SO numbers, repeating or trimming SOs as needed.
-    Compare them to indicate Match / Mismatch.
-    - Keeps duplicate WO color codes
-    - Maintains WO order
-    Returns a DataFrame with the comparison results.
+    Display WO Color Codes vs SO Numbers Comparison table with each WO item in a separate row.
+    
+    Args:
+        so_numbers: List of SO numbers
+        wo_items: List of WO items with color codes
+        
+    Returns:
+        DataFrame with comparison results
     """
-    st.markdown("""
-    <div class="section-header">
-        <h3 class="section-title">🔢 WO Color Codes vs SO Numbers Comparison</h3>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if not wo_items:
-        st.warning("No WO items found to display.")
-        return pd.DataFrame()  # Return empty DataFrame
-
-    # Extract WO color codes (keep duplicates)
-    wo_color_codes = [item.get('WO Colour Code', '').strip() for item in wo_items if item.get('WO Colour Code')]
-
-    # Handle empty SO list
-    if not so_numbers:
-        so_numbers = ["❌ None"]
-
-    # Repeat or trim SO numbers to match WO count
-    if len(so_numbers) < len(wo_color_codes):
-        repeats = (len(wo_color_codes) + len(so_numbers) - 1) // len(so_numbers)
-        so_numbers = (so_numbers * repeats)[:len(wo_color_codes)]
-    elif len(so_numbers) > len(wo_color_codes):
-        so_numbers = so_numbers[:len(wo_color_codes)]
-
-    # Combine WO Color Codes and SO Numbers with comparison
-    display_rows = []
-    for color, so in zip(wo_color_codes, so_numbers):
-        status = "✅ Match" if color.lower() in so.lower() else "❌ Mismatch"
-        display_rows.append({
-            "WO Color Code": color,
-            "SO Number": so,
-            "Status": status
+    # Extract WO color codes (keep duplicates as they appear in the WO)
+    wo_color_codes = []
+    for item in wo_items:
+        color_code = item.get('WO Colour Code', '')
+        if color_code:
+            wo_color_codes.append(color_code)
+    
+    # Create comparison data with each WO item in a separate row
+    comparison_data = []
+    
+    # Process each WO item
+    for i, item in enumerate(wo_items):
+        color_code = item.get('WO Colour Code', '')
+        if not color_code:
+            continue  # Skip items without color code
+        
+        # Find matching SO numbers for this color
+        matching_so_numbers = []
+        for so_number in so_numbers:
+            if so_number and color_code.lower() in so_number.lower():
+                matching_so_numbers.append(so_number)
+        
+        # Determine match status
+        if matching_so_numbers:
+            status = "✅ Match"
+        else:
+            status = "⚠️ No SO Number"
+        
+        # Create a row for this WO item
+        comparison_data.append({
+            "WO Color Code": color_code,
+            "SO Numbers": ", ".join(matching_so_numbers) if matching_so_numbers else "",
+            "Status": status,
+            "WO Item": f"Item {i+1}"  # Add item number for reference
         })
-
+    
     # Create DataFrame
-    df = pd.DataFrame(display_rows)
-
-    # Display aligned table
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    # Summary counts
-    total = len(df)
-    matches = len(df[df["Status"] == "✅ Match"])
-    mismatches = len(df[df["Status"] == "❌ Mismatch"])
-
+    df = pd.DataFrame(comparison_data)
+    
+    # Display summary counts
+    total_items = len(df)
+    matched_items = len(df[df["Status"] == "✅ Match"])
+    no_so_items = len(df[df["Status"] == "⚠️ No SO Number"])
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total WO Items", total_items)
+    with col2:
+        st.metric("Matched", matched_items)
+    with col3:
+        st.metric("No SO", no_so_items)
+    
+    # Display the table
+    st.dataframe(df, use_container_width=True)
+    
     # Display summary
     st.markdown(f"""
     <div class="alert-info">
-        <strong>Summary:</strong> {total} comparisons — ✅ {matches} Match, ❌ {mismatches} Mismatch
+        <strong>Summary:</strong> {total_items} WO items — ✅ {matched_items} Matched, ⚠️ {no_so_items} No SO Number
     </div>
     """, unsafe_allow_html=True)
     
-    # Return the DataFrame for further processing
     return df
 
 def clean_product_code(code):

@@ -1,10 +1,12 @@
 from turtle import st
 import pdfplumber
+import streamlit as st
 import fitz  # PyMuPDF
 import re
 import pandas as pd
 from io import BytesIO
 from fuzzywuzzy import fuzz
+
 
 def uploaded_file_to_bytesio(uploaded_file):
     """Convert an uploaded file to a BytesIO object"""
@@ -441,10 +443,41 @@ def clean_wo_address(addr: str) -> str:
     addr = re.sub(r',\s*$', '', addr)
     return addr.strip()
 
+def clean_address_for_comparison(address):
+    """
+    Clean an address by removing ALL commas (,) and hash symbols (#) for comparison purposes.
+    
+    Args:
+        address (str): The address string to clean
+        
+    Returns:
+        str: The cleaned address with all commas and hash symbols removed
+    """
+    if not address:
+        return ""
+    
+    # Convert to string first to handle any non-string input
+    address = str(address)
+    
+    # Remove ALL commas and hash symbols
+    cleaned = address.replace(",", "").replace("#", "")
+    
+    # Normalize multiple spaces to single space
+    cleaned = " ".join(cleaned.split())
+    
+    return cleaned.strip()
+
 def compare_addresses(wo, po):
-    ns = fuzz.token_sort_ratio(wo["customer_name"], po["delivery_location"])
-    as_ = fuzz.token_sort_ratio(wo["delivery_address"], po["delivery_location"])
+    # Clean BOTH WO and PO addresses before comparison
+    wo_name_clean = clean_address_for_comparison(wo["customer_name"])
+    wo_addr_clean = clean_address_for_comparison(wo["delivery_address"])
+    po_addr_clean = clean_address_for_comparison(po["delivery_location"])
+    
+    # Compare the CLEANED addresses
+    ns = fuzz.token_sort_ratio(wo_name_clean, po_addr_clean)
+    as_ = fuzz.token_sort_ratio(wo_addr_clean, po_addr_clean)
     comb = max(ns, as_)
+    
     return {
         "WO Name": wo["customer_name"], 
         "WO Addr": wo["delivery_address"], 
@@ -1086,6 +1119,247 @@ def _dedupe(items):
         seen.add(key)
         unique.append(it)
     return unique
+
+
+def compare_excel_style_with_po_style2(wo_pdf_file, po_pdf_file, excel_file=None):
+    """
+    Compare style numbers from WO with Style 2 column from PO.
+    Also uses style numbers from uploaded Excel sheet as reference.
+    
+    Args:
+        wo_pdf_file: WO PDF file object
+        po_pdf_file: PO PDF file object
+        excel_file: Optional Excel file with style numbers
+        
+    Returns:
+        DataFrame with style comparison results
+    """
+    # Extract items from WO
+    wo_items = extract_wo_items_table(wo_pdf_file)
+    
+    # Extract items from PO
+    po_details = extract_po_details(po_pdf_file)
+    po_items = po_details.get("po_items", [])
+    
+    # Get style numbers from WO Style column (all styles, not just numeric)
+    wo_styles = []
+    for item in wo_items:
+        style = item.get("Style", "")
+        if style:  # Get all styles, not just numeric ones
+            wo_styles.append(style)
+    
+    # Get style numbers from PO Style 2 column
+    po_styles = []
+    for item in po_items:
+        style2 = item.get("Style 2", "")
+        if style2:
+            po_styles.append(style2)
+    
+    # Get style numbers from Excel sheet if provided
+    excel_styles = []
+    if excel_file:
+        try:
+            # Read the Excel file
+            excel_df = pd.read_excel(excel_file)
+            
+            # Look for a column that might contain style numbers
+            style_col = None
+            for col in excel_df.columns:
+                if "style" in col.lower():
+                    style_col = col
+                    break
+            
+            if style_col:
+                # Extract unique style numbers from this column
+                for style in excel_df[style_col].dropna().unique():
+                    if str(style).strip():  # Make sure it's not empty
+                        excel_styles.append(str(style).strip())
+        except Exception as e:
+            st.error(f"Error reading Excel file: {e}")
+    
+    # Remove duplicates
+    wo_styles = list(set(wo_styles))
+    po_styles = list(set(po_styles))
+    excel_styles = list(set(excel_styles))
+    
+    # Create comparison data
+    comparison_data = []
+    
+    # Create a mapping of all style numbers for easy lookup
+    all_styles = set(wo_styles + po_styles + excel_styles)
+    
+    # Find matches between WO and PO
+    for style in wo_styles:
+        if style in po_styles:
+            # Style found in both WO and PO
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "✅ Found",
+                "PO Style 2 Column": "✅ Found",
+                "Excel Style": "✅ Found" if style in excel_styles else "❌ Not Found",
+                "Match Status": "✅ Perfect Match"
+            })
+        else:
+            # Style only in WO
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "✅ Found",
+                "PO Style 2 Column": "❌ Not Found",
+                "Excel Style": "✅ Found" if style in excel_styles else "❌ Not Found",
+                "Match Status": "⚠️ Only in WO"
+            })
+    
+    # Find matches between PO and Excel
+    for style in po_styles:
+        if style in excel_styles:
+            # Style found in both PO and Excel
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "❌ Not Found",
+                "PO Style 2 Column": "✅ Found",
+                "Excel Style": "✅ Found",
+                "Match Status": "✅ Perfect Match"
+            })
+        else:
+            # Style only in PO
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "❌ Not Found",
+                "PO Style 2 Column": "✅ Found",
+                "Excel Style": "✅ Found",
+                "Match Status": "⚠️ Only in PO"
+            })
+    
+    # Find matches between Excel and WO
+    for style in excel_styles:
+        if style in wo_styles:
+            # Style found in both Excel and WO
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "✅ Found",
+                "PO Style 2 Column": "❌ Not Found",
+                "Excel Style": "✅ Found",
+                "Match Status": "✅ Perfect Match"
+            })
+        else:
+            # Style only in Excel
+            comparison_data.append({
+                "Style Number": style,
+                "WO Style Column": "❌ Not Found",
+                "PO Style 2 Column": "❌ Not Found",
+                "Excel Style": "✅ Found",
+                "Match Status": "⚠️ Only in Excel"
+            })
+    
+    # Create DataFrame
+    df = pd.DataFrame(comparison_data)
+    
+    # Sort by match status and style number
+    if not df.empty:
+        df = df.sort_values(by=["Match Status", "Style Number"])
+    
+    return df
+
+def display_excel_style_comparison(wo_pdf_file, po_pdf_file, excel_file=None):
+    """
+    Display the style comparison between WO, PO, and Excel in Streamlit.
+    
+    Args:
+        wo_pdf_file: WO PDF file object
+        po_pdf_file: PO PDF file object
+        excel_file: Optional Excel file with style numbers
+    """
+    st.subheader("Style Number Comparison: WO vs PO vs Excel")
+    
+    # Get comparison data
+    comparison_df = compare_excel_style_with_po_style2(wo_pdf_file, po_pdf_file, excel_file)
+    
+    if comparison_df.empty:
+        st.info("No style numbers found for comparison.")
+        return
+    
+    # Display summary statistics
+    total_styles = len(comparison_df)
+    matched_styles = len(comparison_df[comparison_df["Match Status"] == "✅ Perfect Match"])
+    wo_only_styles = len(comparison_df[comparison_df["Match Status"] == "⚠️ Only in WO"])
+    po_only_styles = len(comparison_df[comparison_df["Match Status"] == "⚠️ Only in PO"])
+    excel_only_styles = len(comparison_df[comparison_df["Match Status"] == "⚠️ Only in Excel"])
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("Total Styles", total_styles)
+    with col2:
+        st.metric("Perfect Match", matched_styles)
+    with col3:
+        st.metric("Only in WO", wo_only_styles)
+    with col4:
+        st.metric("Only in PO", po_only_styles)
+    with col5:
+        st.metric("Only in Excel", excel_only_styles)
+    
+    # Display the comparison table
+    st.dataframe(comparison_df, use_container_width=True)
+    
+    # Color-code the status for better visibility
+    def highlight_status(val):
+        if "✅" in val:
+            return 'background-color: #d4edda'
+        elif "⚠️" in val:
+            return 'background-color: #fff3cd'
+        elif "❌" in val:
+            return 'background-color: #f8d7da'
+        return ''
+    
+    # Display styled table
+    styled_df = comparison_df.style.applymap(highlight_status, subset=['Match Status'])
+    st.dataframe(styled_df, use_container_width=True)
+
+def get_excel_style_numbers(excel_file):
+    """
+    Extract style numbers from an Excel file.
+    
+    Args:
+        excel_file: Excel file object
+        
+    Returns:
+        List of unique style numbers
+    """
+    if not excel_file:
+        return []
+    
+    try:
+        # Read the Excel file
+        excel_df = pd.read_excel(excel_file)
+        
+        # Look for a column that might contain style numbers
+        style_col = None
+        for col in excel_df.columns:
+            if "style" in col.lower():
+                style_col = col
+                break
+        
+        if style_col:
+            # Extract unique style numbers from this column
+            styles = []
+            for style in excel_df[style_col].dropna().unique():
+                if str(style).strip():  # Make sure it's not empty
+                    styles.append(str(style).strip())
+            return styles
+        else:
+            # If no style column found, try common column names
+            common_style_columns = ["Style", "Style Number", "Style No", "Style Code"]
+            for col in common_style_columns:
+                if col in excel_df.columns:
+                    styles = []
+                    for style in excel_df[col].dropna().unique():
+                        if str(style).strip():  # Make sure it's not empty
+                            styles.append(str(style).strip())
+                    if styles:
+                        return styles
+            return []
+    except Exception as e:
+        st.error(f"Error reading Excel file: {e}")
+        return []
 
 def extract_wo_items_table_enhanced(pdf_file, product_codes=None):
     return extract_wo_items_table(pdf_file, product_codes)
