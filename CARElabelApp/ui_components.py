@@ -16,10 +16,10 @@ def initialize_session_state():
         st.session_state.po_data = None
 
 def create_sidebar():
-    """Create sidebar with navigation"""
-    st.sidebar.title("Navigation")
+    """Create sidebar with checker name selection"""
+    st.sidebar.title("WO & PO Comparison System")
 
-    # Checker name selection (must be selected first)
+    # Checker name selection
     checker_names = [
         "Select Checker",
         "Vihange Perera",
@@ -42,15 +42,9 @@ def create_sidebar():
 
     if st.session_state.checker_name is None:
         st.sidebar.warning("⚠️ Please select a checker name first to continue")
-
-    # Radio buttons for navigation
-    page = st.sidebar.radio(
-        "Select Page",
-        ["Merge PO", "WO & PO Analysis"],  # Changed to have only 2 pages
-        disabled=(st.session_state.checker_name is None)
-    )
     
-    return page
+    # No page selection needed anymore since we're using a single page
+    return "single_page"  # Just return a placeholder value
 
 def display_wo_details(wo_data, checker_name):
     """Display WO details in the UI"""
