@@ -172,46 +172,84 @@ def fill_empty_style_2_from_excel(matched_items, mismatched_items, processed_exc
     return updated_matched, updated_mismatched  
 
 def compare_codes(po_details, wo_items, po_product_codes_from_item=None):
-    po_codes = set()
+    """
+    Compares product codes from PO and WO, removes duplicates, and prepares them for display.
+    Only shows codes that exist in WO (removes PO-only codes).
+    """
+    # --- Step 1: Extract and clean PO codes ---
+    po_codes_set = set()  # Use a set to automatically handle duplicates
+
+    # Extract codes from main PO items list
     for po in po_details:
         code = po.get("Product_Code", "")
         if code:
             if isinstance(code, list):
-                code_str = " / ".join(str(c) for c in code if c)
+                for c in code:
+                    if c:
+                        cleaned_code = str(c).strip().upper()
+                        if cleaned_code:
+                            po_codes_set.add(cleaned_code)
             else:
-                code_str = str(code)
-            cleaned_code = code_str.strip().upper()
-            if cleaned_code:
-                po_codes.add(cleaned_code)
-    
-    # Add PO product codes from Item column if available
+                cleaned_code = str(code).strip().upper()
+                if cleaned_code:
+                    po_codes_set.add(cleaned_code)
+
+    # Add codes from 'po_product_codes_from_item' list if provided
     if po_product_codes_from_item:
         for code in po_product_codes_from_item:
             if code:
                 cleaned_code = str(code).strip().upper()
                 if cleaned_code:
-                    po_codes.add(cleaned_code)
-    
-    wo_codes = set()
+                    po_codes_set.add(cleaned_code)
+
+    # --- Step 2: Extract and clean WO codes ---
+    wo_codes_set = set()  # Use a set for WO codes as well
+
     for w in wo_items:
         code = w.get("WO Product Code", "")
         if code:
             if isinstance(code, list):
-                code_str = " / ".join(str(c) for c in code if c)
+                for c in code:
+                    if c:
+                        cleaned_code = str(c).strip().upper()
+                        if cleaned_code:
+                            wo_codes_set.add(cleaned_code)
             else:
-                code_str = str(code)
-            cleaned_code = code_str.strip().upper()
-            if cleaned_code:
-                wo_codes.add(cleaned_code)
-    comparison = []
-    all_codes = po_codes.union(wo_codes)
-    for code in all_codes:
-        in_po = code in po_codes
-        in_wo = code in wo_codes
-        status = "✅ Match" if in_po and in_wo else "❌ Missing in WO" if in_po else "❌ Missing in PO"
-        comparison.append({"PO Code": code if in_po else "", "WO Code": code if in_wo else "", "Status": status})
-    return comparison
+                cleaned_code = str(code).strip().upper()
+                if cleaned_code:
+                    wo_codes_set.add(cleaned_code)
 
+    # --- Step 3: Prepare data for comparison table ---
+    comparison_data = []
+    
+    # MODIFICATION: Only use codes that exist in WO (remove PO-only codes)
+    # This ensures we only show rows where WO Product Code is not empty
+    all_unique_codes = wo_codes_set  # Only use WO codes, not the union
+
+    # Sort the codes for consistent display order
+    sorted_unique_codes = sorted(list(all_unique_codes))
+
+    for code in sorted_unique_codes:
+        in_po = code in po_codes_set
+        in_wo = code in wo_codes_set
+        
+        if in_po and in_wo:
+            status = "✅ Exact Match"
+        elif not in_po and in_wo:
+            status = "❌ Missing in PO"
+        else: # This case should not happen but is good for safety
+            status = "⚪ Empty"
+
+        comparison_data.append({
+            "📋 PO Product Code": code if in_po else "",
+            "📄 WO Product Code": code if in_wo else "",
+            "🔍 Match Status": status
+        })
+
+    # --- Step 4: Create and return the final DataFrame ---
+    code_table_df = pd.DataFrame(comparison_data)
+    return code_table_df
+    
 def update_po_details_with_excel_styles(po_details, processed_data):
     """Update PO details with style numbers from processed Excel data - only at the very top"""
     if processed_data.empty:

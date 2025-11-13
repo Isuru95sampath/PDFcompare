@@ -171,13 +171,16 @@ def main():
         
         col1, col2 = st.columns(2)
         
+        # In main.py, replace the excel_file uploader section with this:
+
         with col1:
-            excel_file = st.file_uploader(
-                "📤 Upload Excel File", 
+            excel_files = st.file_uploader(
+                "📤 Upload Excel Files (Multiple)", 
                 type=["xls", "xlsx"], 
                 key="excel_merger",
                 disabled=not selected_user,
-                help="Upload Excel file containing table data starting at row 22"
+                accept_multiple_files=True,
+                help="Upload one or more Excel files containing table data starting at row 22"
             )
         
         with col2:
@@ -189,188 +192,202 @@ def main():
                 help="Optional: Upload PDF file to merge with extracted styles"
             )
         
-        if excel_file:
-            with st.spinner("🔄 Extracting table data..."):
-                # Extract table data from all sheets
-                all_sheets_data = read_excel_table(excel_file)
+        if excel_files:
+            with st.spinner("🔄 Extracting table data from multiple files..."):
+                # Process each Excel file
+                all_files_data = []
+                all_styles = []
                 
-                # Process the extracted data
-                if all_sheets_data:
-                    # Filter out sheets with no data
-                    sheets_with_data = [s for s in all_sheets_data if not s['data'].empty]
+                for excel_file in excel_files:
+                    # Extract table data from all sheets of this file
+                    all_sheets_data = read_excel_table(excel_file)
                     
-                    if sheets_with_data:
-                        processed_data = process_excel_table_data(sheets_with_data)
-                        
-                        # Store processed data in session state
-                        st.session_state.processed_excel_data = processed_data
-                        
-                        # Extract style numbers for potential PDF merging
-                        styles = []
+                    # Add file information to each sheet
+                    for sheet_data in all_sheets_data:
+                        sheet_data['file_name'] = excel_file.name
+                    
+                    all_files_data.extend(all_sheets_data)
+                    
+                    # Extract styles from this file
+                    sheets_with_data = [s for s in all_sheets_data if not s['data'].empty]
+                    for sheet_data in sheets_with_data:
+                        if sheet_data['style_number']:
+                            all_styles.append(sheet_data['style_number'])
+                
+                # Filter out sheets with no data
+                sheets_with_data = [s for s in all_files_data if not s['data'].empty]
+                
+                if sheets_with_data:
+                    processed_data = process_excel_table_data(sheets_with_data)
+                    
+                    # Store processed data in session state
+                    st.session_state.processed_excel_data = processed_data
+                    
+                    # If no style numbers found in STYLE columns, try to extract from the data
+                    if not all_styles:
                         for sheet_data in sheets_with_data:
-                            if sheet_data['style_number']:
-                                styles.append(sheet_data['style_number'])
-                        
-                        # If no style numbers found in STYLE column, try to extract from the data
-                        if not styles:
-                            for sheet_data in sheets_with_data:
-                                df = sheet_data['data']
-                                if not df.empty:
-                                    # Look for any 8-digit number in the dataframe
-                                    for col in df.columns:
-                                        for val in df[col].dropna():
-                                            val_str = str(val).strip()
-                                            if re.match(r'^\d{8}$', val_str):
-                                                styles.append(val_str)
-                                                break
-                                        if styles:
+                            df = sheet_data['data']
+                            if not df.empty:
+                                # Look for any 8-digit number in the dataframe
+                                for col in df.columns:
+                                    for val in df[col].dropna():
+                                        val_str = str(val).strip()
+                                        if re.match(r'^\d{8}$', val_str):
+                                            all_styles.append(val_str)
                                             break
-                                    if styles:
+                                    if all_styles:
                                         break
-                        
-                        # Display the extracted table data
-                        st.markdown("""
-                        <div class="alert-success">
-                            ✅ <strong>Success!</strong> Table data extracted successfully.
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        for sheet_data in all_sheets_data:
-                            with st.expander(f"Sheet: {sheet_data['sheet_name']}"):
-                                st.markdown(f"**Style Number:** {sheet_data['style_number'] or 'Not found'}")
-                                
-                                # Display stopping information
-                                if sheet_data['stop_row'] is not None:
-                                    if sheet_data['stop_row'] == 21:
-                                        st.markdown(f"""
-                                        <div class="alert-warning">
-                                            ⚠️ <strong>Stopping text found in header row (row 22).</strong> No data extracted from this sheet.
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                    else:
-                                        st.markdown(f"""
-                                        <div class="alert-warning">
-                                            ⚠️ <strong>Stopping text found at row {sheet_data['stop_row'] + 1}.</strong> This row and any subsequent rows with stopping text were skipped.
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                else:
-                                    st.markdown("""
-                                    <div class="alert-success">
-                                        ✅ <strong>No stopping text found.</strong> All rows (except row 23) were processed.
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                
-                                # Display QTY column information
-                                if sheet_data['qty_col_idx'] is not None:
-                                    st.markdown(f"**QTY column found at index:** {sheet_data['qty_col_idx']}")
-                                else:
-                                    st.markdown("""
-                                    <div class="alert-warning">
-                                        ⚠️ <strong>QTY column not found.</strong> All columns were read.
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                
-                                # Display the data if it exists
-                                if not sheet_data['data'].empty:
-                                    # Check if data was truncated due to blank STYLE
-                                    if 'STYLE' in sheet_data['data'].columns:
-                                        last_style = sheet_data['data']['STYLE'].iloc[-1]
-                                        if pd.isna(last_style) or str(last_style).strip() == '':
-                                            st.markdown("""
-                                            <div class="alert-info">
-                                                ℹ️ <strong>Data truncated</strong> at first blank row in STYLE column.
+                                if all_styles:
+                                    break
+                    
+                    # Display the extracted table data
+                    st.markdown(f"""
+                    <div class="alert-success">
+                        ✅ <strong>Success!</strong> Table data extracted from {len(excel_files)} file(s) successfully.
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Group sheets by file
+                    files_dict = {}
+                    for sheet_data in all_files_data:
+                        file_name = sheet_data['file_name']
+                        if file_name not in files_dict:
+                            files_dict[file_name] = []
+                        files_dict[file_name].append(sheet_data)
+                    
+                    # Display each file's sheets
+                    for file_name, sheets in files_dict.items():
+                        with st.expander(f"📁 File: {file_name}"):
+                            for sheet_data in sheets:
+                                with st.expander(f"Sheet: {sheet_data['sheet_name']}"):
+                                    st.markdown(f"**Style Number:** {sheet_data['style_number'] or 'Not found'}")
+                                    
+                                    # Display stopping information
+                                    if sheet_data['stop_row'] is not None:
+                                        if sheet_data['stop_row'] == 21:
+                                            st.markdown(f"""
+                                            <div class="alert-warning">
+                                                ⚠️ <strong>Stopping text found in header row (row 22).</strong> No data extracted from this sheet.
                                             </div>
                                             """, unsafe_allow_html=True)
-                                    
-                                    st.markdown("**Extracted Data:**")
-                                    st.dataframe(sheet_data['data'], use_container_width=True)
-                                    
-                                    # Show removed unnamed columns info
-                                    st.markdown("""
-                                    <div class="alert-info">
-                                        ℹ️ <strong>Note:</strong> All unnamed columns have been removed.
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                else:
-                                    st.markdown("""
-                                    <div class="alert-info">
-                                        ℹ️ <strong>No data extracted</strong> from this sheet.
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                        
-                        # Show processed combined data
-                        st.markdown("### 🔄 Processed Combined Data")
-                        st.dataframe(processed_data, use_container_width=True, hide_index=True)
-                        
-                        # Download options
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Download processed data as Excel
-                            output = BytesIO()
-                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                processed_data.to_excel(writer, index=False, sheet_name='Processed Data')
-                            output.seek(0)
-                            
-                            st.download_button(
-                                label="⬇️ Download Processed Excel",
-                                data=output,
-                                file_name="Processed_Excel_Data.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True
-                            )
-                        
-                        with col2:
-                            # If styles were found and PDF is uploaded, offer merged PDF
-                            if styles and pdf_file_merger:
-                                styles_pdf = create_styles_pdf(styles)
-                                
-                                # Check if PO file is available in session state
-                                po_pdf_for_merge = None
-                                if 'po_file' in st.session_state and st.session_state.po_file is not None:
-                                    po_pdf_for_merge = uploaded_file_to_bytesio(st.session_state.po_file)
-                                
-                                # Convert the uploaded PDF files to BytesIO objects
-                                pdf_merger_bytes = uploaded_file_to_bytesio(pdf_file_merger)
-                                
-                                # Merge PDFs with PO if available
-                                final_pdf = merge_pdfs_with_po(styles_pdf, pdf_merger_bytes, po_pdf_for_merge)
-                                
-                                if final_pdf:
-                                    if po_pdf_for_merge:
-                                        st.download_button(
-                                            label="⬇️ Download Merged PDF (with PO)",
-                                            data=final_pdf,
-                                            file_name="Merged-PO-WO.pdf",
-                                            mime="application/pdf",
-                                            use_container_width=True
-                                        )
+                                        else:
+                                            st.markdown(f"""
+                                            <div class="alert-warning">
+                                                ⚠️ <strong>Stopping text found at row {sheet_data['stop_row'] + 1}.</strong> This row and any subsequent rows with stopping text were skipped.
+                                            </div>
+                                            """, unsafe_allow_html=True)
                                     else:
-                                        st.download_button(
-                                            label="⬇️ Download Merged PDF",
-                                            data=final_pdf,
-                                            file_name="Merged-PO.pdf",
-                                            mime="application/pdf",
-                                            use_container_width=True
-                                        )
-                            elif styles and not pdf_file_merger:
-                                st.info("Upload a PDF file to merge with extracted styles")
-                    else:
-                        st.markdown("""
-                        <div class="alert-warning">
-                            ⚠️ <strong>Warning:</strong> No valid table data found in any sheet.
-                        </div>
-                        """, unsafe_allow_html=True)
+                                        st.markdown("""
+                                        <div class="alert-success">
+                                            ✅ <strong>No stopping text found.</strong> All rows (except row 23) were processed.
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                    # Display QTY column information
+                                    if sheet_data['qty_col_idx'] is not None:
+                                        st.markdown(f"**QTY column found at index:** {sheet_data['qty_col_idx']}")
+                                    else:
+                                        st.markdown("""
+                                        <div class="alert-warning">
+                                            ⚠️ <strong>QTY column not found.</strong> All columns were read.
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    
+                                    # Display the data if it exists
+                                    if not sheet_data['data'].empty:
+                                        # Check if data was truncated due to blank STYLE
+                                        if 'STYLE' in sheet_data['data'].columns:
+                                            last_style = sheet_data['data']['STYLE'].iloc[-1]
+                                            if pd.isna(last_style) or str(last_style).strip() == '':
+                                                st.markdown("""
+                                                <div class="alert-info">
+                                                    ℹ️ <strong>Data truncated</strong> at first blank row in STYLE column.
+                                                </div>
+                                                """, unsafe_allow_html=True)
+                                        
+                                        st.markdown("**Extracted Data:**")
+                                        st.dataframe(sheet_data['data'], use_container_width=True)
+                                        
+                                        # Show removed unnamed columns info
+                                        st.markdown("""
+                                        <div class="alert-info">
+                                            ℹ️ <strong>Note:</strong> All unnamed columns have been removed.
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    else:
+                                        st.markdown("""
+                                        <div class="alert-info">
+                                            ℹ️ <strong>No data extracted</strong> from this sheet.
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                    
+                    # Show processed combined data
+                    st.markdown("### 🔄 Processed Combined Data")
+                    st.dataframe(processed_data, use_container_width=True, hide_index=True)
+                    
+                    # Download options
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Download processed data as Excel
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            processed_data.to_excel(writer, index=False, sheet_name='Processed Data')
+                        output.seek(0)
+                        
+                        st.download_button(
+                            label="⬇️ Download Processed Excel",
+                            data=output,
+                            file_name="Processed_Excel_Data.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        # If styles were found and PDF is uploaded, offer merged PDF
+                        if all_styles and pdf_file_merger:
+                            styles_pdf = create_styles_pdf(all_styles)
+                            
+                            # Check if PO file is available in session state
+                            po_pdf_for_merge = None
+                            if 'po_file' in st.session_state and st.session_state.po_file is not None:
+                                po_pdf_for_merge = uploaded_file_to_bytesio(st.session_state.po_file)
+                            
+                            # Convert the uploaded PDF files to BytesIO objects
+                            pdf_merger_bytes = uploaded_file_to_bytesio(pdf_file_merger)
+                            
+                            # Merge PDFs with PO if available
+                            final_pdf = merge_pdfs_with_po(styles_pdf, pdf_merger_bytes, po_pdf_for_merge)
+                            
+                            if final_pdf:
+                                if po_pdf_for_merge:
+                                    st.download_button(
+                                        label="⬇️ Download Merged PDF (with PO)",
+                                        data=final_pdf,
+                                        file_name="Merged-PO-WO.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True
+                                    )
+                                else:
+                                    st.download_button(
+                                        label="⬇️ Download Merged PDF",
+                                        data=final_pdf,
+                                        file_name="Merged-PO.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True
+                                    )
+                        elif all_styles and not pdf_file_merger:
+                            st.info("Upload a PDF file to merge with extracted styles")
                 else:
                     st.markdown("""
                     <div class="alert-warning">
-                        ⚠️ <strong>Warning:</strong> No valid table data found in the Excel file.
+                        ⚠️ <strong>Warning:</strong> No valid table data found in any sheet.
                     </div>
                     """, unsafe_allow_html=True)
         else:
             st.markdown("""
             <div class="alert-info">
-                ℹ️ <strong>Info:</strong> Please upload an Excel file to extract table data.
+                ℹ️ <strong>Info:</strong> Please upload one or more Excel files to extract table data.
             </div>
             """, unsafe_allow_html=True)
 
@@ -392,6 +409,7 @@ def main():
             
             # Updated to include PO product codes from Item column
             code_res = compare_codes(po_details, wo_items, po_product_codes_from_item)
+            code_table_df = compare_codes(po_details, wo_items, po_product_codes_from_item)
             
             matched, mismatched = enhanced_quantity_matching(wo_items, po_details)
             po_number = extract_po_number(po_file)
@@ -429,11 +447,11 @@ def main():
             # Create code_table_df here to ensure it's available in the scope
             # Include PO product codes from Item column in the comparison
             po_all_codes = [po.get("Product_Code", "").strip().upper() for po in po_details if po.get("Product_Code")]
-            
+
             # Add PO product codes from Item column
             if po_product_codes_from_item:
                 po_all_codes.extend([code.strip().upper() for code in po_product_codes_from_item])
-            
+
             wo_all_codes = [wo.get("WO Product Code", "").strip().upper() for wo in wo_items if wo.get("WO Product Code")]
             comparison_rows = []
             max_len = max(len(po_all_codes), len(wo_all_codes)) if po_all_codes or wo_all_codes else 0

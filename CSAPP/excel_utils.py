@@ -119,13 +119,14 @@ print(f"Type of st: {type(st)}")
 print(f"st module: {st}")
 
 def process_excel_table_data(all_table_data):
-    """Process Excel table data into a single table format"""
+    """Process Excel table data from multiple files into a single table format"""
     try:
         all_excel_items = []
         
         for table_info in all_table_data:
             excel_df = table_info['data']
             excel_sheet = table_info['sheet_name']
+            file_name = table_info.get('file_name', 'Unknown File')
             
             if excel_df.empty:
                 continue
@@ -167,6 +168,10 @@ def process_excel_table_data(all_table_data):
                     else:
                         excel_item[std_col] = ""
                 
+                # Add file and sheet information
+                excel_item['Source File'] = file_name
+                excel_item['Source Sheet'] = excel_sheet
+                
                 for col in excel_columns:
                     if col not in column_mapping.values():
                         value = row[col]
@@ -198,6 +203,29 @@ def process_excel_table_data(all_table_data):
     except Exception as e:
         st.error(f"Error processing Excel table data: {str(e)}")
         return pd.DataFrame()
+    
+def read_multiple_excel_tables(excel_files):
+    """
+    Read tables from all sheets of multiple Excel files starting from A22, with specific stopping conditions
+    
+    Args:
+        excel_files: List of uploaded Excel files
+        
+    Returns:
+        List of dictionaries containing sheet data from all files
+    """
+    all_files_data = []
+    
+    for excel_file in excel_files:
+        file_data = read_excel_table(excel_file)
+        
+        # Add file name to each sheet's data
+        for sheet_data in file_data:
+            sheet_data['file_name'] = excel_file.name
+        
+        all_files_data.extend(file_data)
+    
+    return all_files_data
 
 def convert_excel_size_codes(size_value):
     """Convert numeric size codes from Excel to text sizes"""

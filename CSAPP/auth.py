@@ -8,7 +8,7 @@ def authenticate_user():
         st.markdown("### ⭐ User Selection")
         selected_user = st.selectbox(
             "Select your name:",
-            ["", "👧Tarini", "👧udari", "👧Shaini", "👧Priyangi", "👧Uvini","👦Vihanga","👧Nimesha"],
+            ["","👧udari", "👧Shaini", "👧Priyangi", "👧Uvini","👦Vihanga","👧Nimesha"],
             help="You must select a user to access the application"
         )
         
