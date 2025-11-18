@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 # ----------------- Helper Functions for WO Data Extraction -----------------
-@st.cache_data
+
 def extract_text_from_pdf(pdf_file):
     """Extract text from PDF file with caching"""
     try:
@@ -25,7 +25,7 @@ def extract_text_from_pdf(pdf_file):
         return None
 
 # ----------------- Data Extraction Functions for WO Only -----------------
-@st.cache_data
+
 def extract_po_number(text):
     """Extract PO Number from WO documents with caching"""
     # Try WO format
@@ -38,7 +38,7 @@ def extract_po_number(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_season(text):
     """Extract Season from WO documents with caching"""
     # Try WO format first - stop at "Line Item:" but don't include it
@@ -56,7 +56,7 @@ def extract_season(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_factory_id(text):
     """Extract Factory ID from WO documents with caching"""
     # Try WO format first
@@ -66,7 +66,7 @@ def extract_factory_id(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_silhouette(text):
     """Extract Silhouette from WO documents with caching"""
     # Try WO format first - Extract only text before the first slash or dash
@@ -78,7 +78,7 @@ def extract_silhouette(text):
     silhouette_match = re.search(r'Description:\s*([^\n]+)', text)
     return silhouette_match.group(1).strip() if silhouette_match else "Not Found"
 
-@st.cache_data
+
 def extract_vss_vsd(text):
     """Extract VSS# or VSD# from WO documents with caching"""
     # Try WO format first - specifically from Product Details section
@@ -108,7 +108,7 @@ def extract_vss_vsd(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_date_of_mfr(text):
     """Extract Date of MFR from WO documents with caching"""
     # Try WO format first
@@ -118,7 +118,7 @@ def extract_date_of_mfr(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_country_of_origin(text):
     """Extract Country of Origin from WO documents with caching"""
     # Try WO format first - "made in Sri Lanka" (captures multi-word country names)
@@ -128,7 +128,7 @@ def extract_country_of_origin(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_size_breakdown(text):
     """Extract Size/Age Breakdown from WO documents with caching"""
     
@@ -194,7 +194,7 @@ def extract_size_breakdown(text):
     # Default empty breakdown if nothing found
     return {}
 
-@st.cache_data
+
 def extract_care_instruction(text):
     """Extract Care Instruction from WO documents with caching"""
     # Try WO format first
@@ -204,7 +204,7 @@ def extract_care_instruction(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_quantity(text):
     """Extract Quantity from WO documents with caching"""
     # Try WO format first
@@ -226,7 +226,7 @@ def extract_quantity(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_garment_components(text):
     """Extract Garment Components & Fibre Contents from WO documents with caching"""
     # Try WO format first
@@ -240,7 +240,7 @@ def extract_garment_components(text):
     return "Not Found"
 
 # New extraction functions for the additional fields
-@st.cache_data
+
 def extract_product_code(text):
     """Extract Product Code from WO documents with caching - read only the value after 'Product Code:' within Product Details section"""
     # Step 1: Find the Product Details section
@@ -270,61 +270,297 @@ def extract_product_code(text):
     
     return "Not Found"
 
-@st.cache_data
 def extract_delivery_date(text):
-    """Extract Delivery Date from WO documents with caching"""
-    # Try WO format first - Delivery Date (ex factory) under Order Delivery Details
-    delivery_date_match = re.search(r"Delivery Date \(ex factory\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})", text, re.IGNORECASE)
+    """Extract Delivery Date from WO documents - handles multiple PDF formats"""
+    # Method 1: Look for "Order Delivery Details:" section first, then find the date
+    order_delivery_match = re.search(
+        r'Order\s+Delivery\s+Details:(.*?)(?=Product\s+Details:|$)',
+        text,
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    if order_delivery_match:
+        delivery_section = order_delivery_match.group(1)
+        
+        # Pattern 1: Handle line break between "ex" and "factory"
+        delivery_date_match = re.search(
+            r'Delivery\s+Date\s*\(\s*ex\s*\n\s*factory\s*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+            delivery_section,
+            re.IGNORECASE
+        )
+        
+        if delivery_date_match:
+            return delivery_date_match.group(1).strip()
+        
+        # Pattern 2: Handle no line break between "ex" and "factory"
+        delivery_date_match = re.search(
+            r'Delivery\s+Date\s*\(\s*ex\s+factory\s*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+            delivery_section,
+            re.IGNORECASE
+        )
+        
+        if delivery_date_match:
+            return delivery_date_match.group(1).strip()
+        
+        # Pattern 3: More flexible pattern with any content between parentheses
+        delivery_date_match = re.search(
+            r'Delivery\s+Date\s*\([^)]*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+            delivery_section,
+            re.IGNORECASE | re.DOTALL
+        )
+        
+        if delivery_date_match:
+            return delivery_date_match.group(1).strip()
+        
+        # Pattern 4: Even simpler - just find date after "Delivery Date"
+        delivery_date_match = re.search(
+            r'Delivery\s+Date[^:]*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+            delivery_section,
+            re.IGNORECASE
+        )
+        
+        if delivery_date_match:
+            return delivery_date_match.group(1).strip()
+    
+    # Method 2: Search the entire document if the section approach didn't work
+    # Pattern 1: Handle line break between "ex" and "factory"
+    delivery_date_match = re.search(
+        r'Delivery\s+Date\s*\(\s*ex\s*\n\s*factory\s*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+        text,
+        re.IGNORECASE
+    )
+    
+    if delivery_date_match:
+        return delivery_date_match.group(1).strip()
+    
+    # Pattern 2: Handle no line break between "ex" and "factory"
+    delivery_date_match = re.search(
+        r'Delivery\s+Date\s*\(\s*ex\s+factory\s*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+        text,
+        re.IGNORECASE
+    )
+    
+    if delivery_date_match:
+        return delivery_date_match.group(1).strip()
+    
+    # Pattern 3: More flexible pattern with any content between parentheses
+    delivery_date_match = re.search(
+        r'Delivery\s+Date\s*\([^)]*\)\s*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+        text,
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    if delivery_date_match:
+        return delivery_date_match.group(1).strip()
+    
+    # Pattern 4: Even simpler - just find date after "Delivery Date"
+    delivery_date_match = re.search(
+        r'Delivery\s+Date[^:]*:\s*(\d{4}[/\-]\d{2}[/\-]\d{2})',
+        text,
+        re.IGNORECASE
+    )
+    
+    if delivery_date_match:
+        return delivery_date_match.group(1).strip()
+    
+    # Method 3: Try to find any date in YYYY/MM/DD format in the document
+    delivery_date_match = re.search(
+        r'(\d{4}[/\-]\d{2}[/\-]\d{2})',
+        text
+    )
+    
     if delivery_date_match:
         return delivery_date_match.group(1).strip()
     
     return "Not Found"
 
-@st.cache_data
-def extract_delivery_location(text):
-    """Extract Customer Delivery Name + Delivery To from WO documents with caching"""
-    # Try WO format first - Look for Order Delivery Details section
-    # Extract Customer Delivery Name and Deliver To
-    customer_name_match = re.search(r'Customer Delivery\s*Name\s*:\s*([^\n]+)', text, re.IGNORECASE)
-    deliver_to_match = re.search(r'Deliver To\s*:\s*([^\n]+)', text, re.IGNORECASE)
+
+def extract_size_id(text):
+    """Extract Size ID from WO documents - handles multiple PDF formats"""
+    # Method 1: Look for "Size ID:" within the Product Details section
+    product_details_match = re.search(
+        r'Product\s+Details:(.*?)(?:Additional\s+Instructions:|Garment\s+Components|End\s+of\s+Works\s+Order|$)',
+        text,
+        re.IGNORECASE | re.DOTALL
+    )
     
-    if customer_name_match and deliver_to_match:
+    if product_details_match:
+        product_details_text = product_details_match.group(1)
+        
+        # Pattern 1: Standard "Size ID:" followed by content
+        size_id_match = re.search(
+            r'Size\s+ID\s*:\s*([A-Za-z0-9\-/\s]+?)(?=\s*(?:Product\s+Code:|Product\s+Description:|Quantity:|Size/Age\s+Breakdown:|$))',
+            product_details_text,
+            re.IGNORECASE
+        )
+        
+        if size_id_match:
+            size_id_value = size_id_match.group(1).strip()
+            size_id_value = re.sub(r'\s+', ' ', size_id_value)
+            size_id_value = re.sub(r'Size/Age\s*Breakdown.*$', '', size_id_value, flags=re.IGNORECASE).strip()
+            return size_id_value
+        
+        # Pattern 2: More general pattern
+        size_id_match = re.search(
+            r'Size\s+ID\s*:\s*([^\n]{1,50})',
+            product_details_text,
+            re.IGNORECASE
+        )
+        
+        if size_id_match:
+            size_id_value = size_id_match.group(1).strip()
+            size_id_value = re.sub(r'\s+', ' ', size_id_value)
+            size_id_value = re.sub(r'Size/Age\s*Breakdown.*$', '', size_id_value, flags=re.IGNORECASE).strip()
+            return size_id_value
+    
+    # Method 2: Search the entire document if the section approach didn't work
+    # Pattern 1: Standard "Size ID:" followed by content
+    size_id_match = re.search(
+        r'Size\s+ID\s*:\s*([A-Za-z0-9\-/\s]+?)(?=\s*(?:Product\s+Code:|Product\s+Description:|Quantity:|Size/Age\s+Breakdown:|$))',
+        text,
+        re.IGNORECASE
+    )
+    
+    if size_id_match:
+        size_id_value = size_id_match.group(1).strip()
+        size_id_value = re.sub(r'\s+', ' ', size_id_value)
+        size_id_value = re.sub(r'Size/Age\s*Breakdown.*$', '', size_id_value, flags=re.IGNORECASE).strip()
+        return size_id_value
+    
+    # Pattern 2: More general pattern
+    size_id_match = re.search(
+        r'Size\s+ID\s*:\s*([^\n]{1,50})',
+        text,
+        re.IGNORECASE
+    )
+    
+    if size_id_match:
+        size_id_value = size_id_match.group(1).strip()
+        size_id_value = re.sub(r'\s+', ' ', size_id_value)
+        size_id_value = re.sub(r'Size/Age\s*Breakdown.*$', '', size_id_value, flags=re.IGNORECASE).strip()
+        return size_id_value
+    
+    # Method 3: Try to find any size ID pattern in the document
+    # Look for patterns like "VSGLOBAL004" or similar size ID formats
+    size_id_match = re.search(
+        r'(?:Size\s+ID\s*:|ID\s*:)\s*([A-Za-z0-9\-/\s]+)',
+        text,
+        re.IGNORECASE
+    )
+    
+    if size_id_match:
+        size_id_value = size_id_match.group(1).strip()
+        size_id_value = re.sub(r'\s+', ' ', size_id_value)
+        return size_id_value
+    
+    # Method 4: Try to find any pattern that looks like a size ID
+    # This is a last resort and might not be accurate
+    size_id_match = re.search(
+        r'([A-Z]{3,}[A-Z0-9]{3,})',
+        text
+    )
+    
+    if size_id_match:
+        return size_id_match.group(1).strip()
+    
+    return "Not Found"
+
+
+def extract_delivery_location(text):
+    """Extract Delivery Location from WO documents - combines 'Customer Delivery Name:' and 'Deliver To:' under 'Order Delivery Details:'"""
+    # First, find the Order Delivery Details section
+    order_delivery_match = re.search(
+        r'Order\s+Delivery\s+Details:(.*?)(?=Product\s+Details:|$)',
+        text,
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    if not order_delivery_match:
+        return "Not Found"
+    
+    delivery_section = order_delivery_match.group(1)
+    
+    # Extract Customer Delivery Name (handle line breaks)
+    customer_name = ""
+    customer_name_match = re.search(
+        r'Customer\s+Delivery\s*\n\s*Name\s*:\s*([^\n]+)',
+        delivery_section,
+        re.IGNORECASE
+    )
+    
+    if not customer_name_match:
+        # Try without line break
+        customer_name_match = re.search(
+            r'Customer\s+Delivery\s+Name\s*:\s*([^\n]+)',
+            delivery_section,
+            re.IGNORECASE
+        )
+    
+    if customer_name_match:
         customer_name = customer_name_match.group(1).strip()
+    
+    # Extract Deliver To address - multiple approaches
+    deliver_to = ""
+    
+    # Approach 1: Look for "Deliver To:" and capture until the next field that starts with capital letter
+    deliver_to_match = re.search(
+        r'Deliver\s+To\s*:\s*(.*?)(?=\n\s*[A-Z][a-zA-Z]*\s*:|\n\s*Delivery\s+Method:|\n\s*Delivery\s+Account|\n\s*Contact:|\n\s*Comments|\n\s*Special|\n\s*Product\s+Details:|\Z)',
+        delivery_section,
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    if deliver_to_match:
         deliver_to = deliver_to_match.group(1).strip()
+        # Clean up extra whitespace but preserve the address structure
+        deliver_to = re.sub(r'\s+', ' ', deliver_to)
+    else:
+        # Approach 2: Look for "Deliver To:" and capture everything until next major section
+        deliver_to_match = re.search(
+            r'Deliver\s+To\s*:\s*(.*?)(?=Delivery\s+Method|Product\s+Details|End\s+of\s+Works\s+Order|$)',
+            delivery_section,
+            re.IGNORECASE | re.DOTALL
+        )
         
-        # Remove "BFF-" prefix from both customer name and deliver to
-        customer_name = re.sub(r'\bBFF-\s*', '', customer_name, flags=re.IGNORECASE)
-        deliver_to = re.sub(r'\bBFF-\s*', '', deliver_to, flags=re.IGNORECASE)
-        
-        # Check if "Sri Lanka" is in the deliver_to address
-        if 'sri lanka' in deliver_to.lower():
-            # If "Sri Lanka" is found, extract only the address part up to "Sri Lanka"
-            # and explicitly skip everything after "Sri Lanka"
-            sri_lanka_match = re.search(r'(.*?)\s*Sri Lanka', deliver_to, re.IGNORECASE)
-            if sri_lanka_match:
-                deliver_to = sri_lanka_match.group(1).strip()
-            else:
-                # If for some reason the match fails, set deliver_to to empty
-                deliver_to = ""
-        
-        # Combine Customer Delivery Name + Deliver To
+        if deliver_to_match:
+            deliver_to = deliver_to_match.group(1).strip()
+            # Clean up extra whitespace
+            deliver_to = re.sub(r'\s+', ' ', deliver_to)
+        else:
+            # Approach 3: Try to capture just the first line after "Deliver To:"
+            deliver_to_match = re.search(
+                r'Deliver\s+To\s*:\s*([^\n]+)',
+                delivery_section,
+                re.IGNORECASE
+            )
+            
+            if deliver_to_match:
+                deliver_to = deliver_to_match.group(1).strip()
+    
+    # Clean up the extracted values
+    customer_name = re.sub(r'\bBFF-\s*', '', customer_name, flags=re.IGNORECASE)
+    deliver_to = re.sub(r'\bBFF-\s*', '', deliver_to, flags=re.IGNORECASE)
+    
+    # Combine the two parts
+    if customer_name and deliver_to:
         # Check if customer_name is already contained in deliver_to to avoid duplication
         if customer_name.lower() in deliver_to.lower() or deliver_to.lower() in customer_name.lower():
             # If one is contained in the other, use only the longer one
             delivery_location = customer_name if len(customer_name) > len(deliver_to) else deliver_to
         else:
             # If they're different, combine them
-            delivery_location = f"{customer_name} + {deliver_to}"
-        
-        # Clean up multiple commas and spaces
-        delivery_location = re.sub(r',\s*,+', ',', delivery_location)  # Remove duplicate commas
-        delivery_location = re.sub(r'\s+', ' ', delivery_location)  # Normalize spaces
-        
-        return delivery_location.strip()
+            delivery_location = f"{customer_name} - {deliver_to}"
+    elif customer_name:
+        delivery_location = customer_name
+    elif deliver_to:
+        delivery_location = deliver_to
+    else:
+        delivery_location = "Not Found"
     
-    return "Not Found"
+    # Clean up final result
+    delivery_location = re.sub(r'\s+', ' ', delivery_location).strip()
+    
+    return delivery_location
 
-@st.cache_data
 def extract_color_code(text):
     """Extract Color Code from WO documents with caching"""
     # Try WO format first - from Product Details section
@@ -341,7 +577,7 @@ def extract_color_code(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_size_id(text):
     """Extract Size ID from WO documents with caching - read only the value after 'Size ID:' within Product Details section"""
     # Step 1: Find the Product Details section
@@ -376,7 +612,7 @@ def extract_size_id(text):
     return "Not Found"
 
 # NEW EXTRACTION FUNCTIONS FOR ADDRESS AND CUSTOMER
-@st.cache_data
+
 def extract_address(text):
     """Extract Address from WO documents - under 'works order No:' and in front of 'To:' with caching"""
     # Look for pattern: works order No: [some text] To: [address] Customer:
@@ -398,7 +634,7 @@ def extract_address(text):
     
     return "Not Found"
 
-@st.cache_data
+
 def extract_customer(text):
     """Extract Customer from WO documents - after 'customer:' and read the infront of line with caching"""
     # Look for pattern: Customer: [customer name]
@@ -844,16 +1080,10 @@ def extract_wo_items_table_enhanced(pdf_file, product_codes=None):
     return final_items
 
 # ============= NEW: ROBUST SIZE BREAKDOWN TABLE EXTRACTION =============
-def extract_size_breakdown_table_from_pdf_robust(pdf_file) -> List[Dict[str, Any]]:
+def extract_size_breakdown_table_robust(pdf_file):
     """
-    Robust extraction of Size/Age Breakdown table from WO PDF.
-    Prioritizes direct table extraction over text parsing.
-    
-    Args:
-        pdf_file: A file-like object (e.g., from st.file_uploader)
-    
-    Returns:
-        List of dictionaries with 'Size' and 'Order Quantity' keys
+    Main function to call the robust size breakdown extraction.
+    This is the function you should call from your main application.
     """
     try:
         with pdfplumber.open(pdf_file) as pdf:
@@ -897,6 +1127,7 @@ def extract_size_breakdown_table_from_pdf_robust(pdf_file) -> List[Dict[str, Any
 def _process_table_for_size_breakdown(table: List[List[Any]]) -> List[Dict[str, Any]]:
     """
     Process an extracted table to find and extract size breakdown data.
+    Ensures 'Order Quantity' is converted to a numeric type.
     """
     if not table or len(table) < 2:
         return []
@@ -910,204 +1141,121 @@ def _process_table_for_size_breakdown(table: List[List[Any]]) -> List[Dict[str, 
     # Try to identify the header row
     header_row_idx = _find_header_row(processed_table)
     if header_row_idx == -1:
-        # If no clear header, try to infer based on content
-        header_row_idx = _infer_header_row(processed_table)
-    
-    if header_row_idx == -1:
         return []
 
-    # Identify column indices
-    size_col_idx, qty_col_idx = _identify_size_quantity_columns(processed_table, header_row_idx)
+    # Get the header row to determine column positions
+    header_row = processed_table[header_row_idx]
     
-    if size_col_idx == -1 or qty_col_idx == -1:
+    # Find the columns we need
+    size_col = None
+    quantity_col = None
+    
+    for i, cell in enumerate(header_row):
+        cell_lower = cell.lower()
+        if "size" in cell_lower and size_col is None:
+            size_col = i
+        elif ("quantity" in cell_lower or "qty" in cell_lower) and quantity_col is None:
+            quantity_col = i
+    
+    # If we couldn't find the columns, try to infer them
+    if size_col is None or quantity_col is None:
+        # Look for rows that might contain size data
+        for row in processed_table[header_row_idx + 1:]:
+            if len(row) < 2:
+                continue
+                
+            # Check if any cell contains a size identifier
+            for i, cell in enumerate(row):
+                if size_col is None and any(size in cell.upper() for size in ["XS", "S", "M", "L", "XL", "XXL"]):
+                    size_col = i
+                elif quantity_col is None and re.search(r'\d+', cell):
+                    quantity_col = i
+            
+            # If we've found both columns, break
+            if size_col is not None and quantity_col is not None:
+                break
+    
+    # If we still couldn't determine the columns, return empty
+    if size_col is None or quantity_col is None:
         return []
-
-    # Extract data from rows below the header
-    extracted_data = []
+    
+    # Extract the data rows
+    size_data = []
     for row in processed_table[header_row_idx + 1:]:
-        if not row or len(row) <= max(size_col_idx, qty_col_idx):
+        if len(row) <= max(size_col, quantity_col):
             continue
+            
+        size = row[size_col].strip()
+        quantity_str = row[quantity_col].strip()
         
-        size = row[size_col_idx].strip()
-        qty_str = row[qty_col_idx].strip()
+        # Skip empty rows
+        if not size and not quantity_str:
+            continue
+            
+        # Clean up the size
+        size = re.sub(r'\s+', ' ', size)
         
-        # Clean the size value
-        size = _clean_size_value(size)
-        
-        # Clean the quantity value
-        quantity = _clean_quantity_value(qty_str)
-        
-        if size and quantity > 0:
-            extracted_data.append({
-                "Size": size,
-                "Order Quantity": quantity
-            })
-
-    return extracted_data
+        # Extract and clean the quantity
+        quantity_match = re.search(r'([\d,]+(?:\.\d+)?)', quantity_str)
+        if quantity_match:
+            try:
+                quantity = float(quantity_match.group(1).replace(',', ''))
+                size_data.append({
+                    'Size': size,
+                    'Order Quantity': quantity
+                })
+            except ValueError:
+                continue
+    
+    return size_data
 
 def _find_header_row(table: List[List[str]]) -> int:
     """
-    Find the header row by looking for keywords.
+    Find the header row in a table that contains size breakdown information.
+    Returns the index of the header row, or -1 if not found.
     """
     for i, row in enumerate(table):
-        row_text = " ".join(row).upper()
-        if any(keyword in row_text for keyword in [
-            "SIZE", "AGE", "BREAKDOWN", "QUANTITY", "QTY", "ORDER"
-        ]):
-            return i
-    return -1
-
-def _infer_header_row(table: List[List[str]]) -> int:
-    """
-    Infer the header row by looking for data patterns.
-    """
-    for i, row in enumerate(table):
-        if len(row) >= 2:
-            # Check if first column looks like a size (XS, S, M, L, etc.)
-            first_cell = row[0].upper()
-            if first_cell in ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]:
-                # This might be a data row, so header is likely above
-                return max(0, i - 1)
-            
-            # Check if any cell contains size-like data
-            for cell in row:
-                cell_upper = cell.upper()
-                if any(size in cell_upper for size in ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]):
-                    return max(0, i - 1)
-    return 0  # Default to first row if nothing found
-
-def _identify_size_quantity_columns(table: List[List[str]], header_row_idx: int) -> tuple:
-    """
-    Identify which columns contain size and quantity data.
-    """
-    if header_row_idx >= len(table):
-        return -1, -1
-    
-    header_row = table[header_row_idx]
-    size_col_idx = -1
-    qty_col_idx = -1
-    
-    # Look for column headers
-    for i, header in enumerate(header_row):
-        header_upper = header.upper()
-        
-        if "SIZE" in header_upper and size_col_idx == -1:
-            size_col_idx = i
-        elif ("QUANTITY" in header_upper or "QTY" in header_upper) and qty_col_idx == -1:
-            qty_col_idx = i
-    
-    # If headers not found, try to infer from data patterns
-    if size_col_idx == -1 or qty_col_idx == -1:
-        size_col_idx, qty_col_idx = _infer_columns_from_data(table, header_row_idx)
-    
-    return size_col_idx, qty_col_idx
-
-def _infer_columns_from_data(table: List[List[str]], header_row_idx: int) -> tuple:
-    """
-    Infer column indices by analyzing data patterns in rows.
-    """
-    size_col_idx = -1
-    qty_col_idx = -1
-    
-    # Check rows below header
-    for row in table[header_row_idx + 1:header_row_idx + 5]:  # Check next 5 rows
-        if len(row) < 2:
+        if not row:
             continue
-        
-        for i, cell in enumerate(row):
-            cell_upper = cell.upper()
             
-            # Check for size patterns
-            if size_col_idx == -1 and cell_upper in ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]:
-                size_col_idx = i
-            
-            # Check for quantity patterns (numbers)
-            if qty_col_idx == -1 and re.match(r'^[\d,]+$', cell):
-                qty_col_idx = i
-        
-        # If both found, break
-        if size_col_idx != -1 and qty_col_idx != -1:
-            break
+        row_text = " ".join(row).lower()
+        if "size" in row_text and ("quantity" in row_text or "qty" in row_text):
+            return i
     
-    return size_col_idx, qty_col_idx
-
-def _clean_size_value(size_str: str) -> str:
-    """
-    Clean and normalize size value.
-    """
-    if not size_str:
-        return ""
-    
-    # Remove common separators and take the first part
-    size_str = size_str.split('|')[0].split('/')[0].strip()
-    
-    # Ensure it's a valid size
-    valid_sizes = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "P", "G", "XG"]
-    if size_str.upper() in valid_sizes:
-        return size_str.upper()
-    
-    # If not a standard size, return as-is but cleaned
-    return size_str.strip()
-
-def _clean_quantity_value(qty_str: str) -> int:
-    """
-    Clean and convert quantity value to integer.
-    """
-    if not qty_str:
-        return 0
-    
-    # Remove commas and any non-digit characters
-    qty_clean = re.sub(r'[^\d]', '', qty_str)
-    
-    try:
-        return int(qty_clean)
-    except ValueError:
-        return 0
+    return -1
 
 def _extract_size_breakdown_from_text(text: str) -> List[Dict[str, Any]]:
     """
-    Extract size breakdown from text as a fallback method.
+    Extract size breakdown from text when table extraction fails.
     """
-    # Find the Size/Age Breakdown section
-    size_breakdown_match = re.search(
-        r'Size/Age\s*Breakdown:\s*(.*?)(?=ITL\s*Factory\s*Code:|VSD#:|VSS#:|RN#:|CA#:|Factory\s*ID:|Product\s*Details:|$)',
-        text,
-        re.IGNORECASE | re.DOTALL
-    )
+    size_data = []
     
-    if not size_breakdown_match:
-        return []
+    # Find the size breakdown section
+    size_section_match = re.search(r'Size/Age Breakdown:(.*?)(?:ITL Factory Code:|Care Instruction Set|$)', text, re.DOTALL)
+    if not size_section_match:
+        return size_data
     
-    size_section = size_breakdown_match.group(1).strip()
-    lines = [line.strip() for line in size_section.split('\n') if line.strip()]
+    size_text = size_section_match.group(1)
     
-    # Skip header line if present
-    if lines and any(header in lines[0].upper() for header in ['ORDER QUANTITY', 'QUANTITY', 'QTY']):
-        lines = lines[1:]
+    # Try to extract size and quantity pairs
+    # Pattern matches like "XS | XP | ECH | 165/64A 696"
+    size_lines = re.findall(r'([A-Z]+(?:/[A-Z0-9]+)*)\s+(\d+)', size_text)
     
-    extracted_data = []
-    for line in lines:
-        # Try to match size and quantity patterns
-        # Pattern: SIZE ... QUANTITY
-        match = re.match(r'^([A-Z]{1,4})\s+.*?(\d{1,3}(?:,\d{3})*)$', line)
-        if match:
-            size = match.group(1).strip()
-            quantity = int(match.group(2).replace(',', ''))
-            
-            if size and quantity > 0:
-                extracted_data.append({
-                    "Size": size,
-                    "Order Quantity": quantity
-                })
+    for size, qty in size_lines:
+        # Extract main size (first part before /)
+        main_size = size.split('/')[0]
+        
+        try:
+            quantity = float(qty)
+            size_data.append({
+                'Size': main_size,
+                'Order Quantity': quantity
+            })
+        except ValueError:
+            continue
     
-    return extracted_data
+    return size_data
 
-def extract_size_breakdown_table_robust(pdf_file):
-    """
-    Main function to call the robust size breakdown extraction.
-    This is the function you should call from your main application.
-    """
-    return extract_size_breakdown_table_from_pdf_robust(pdf_file)
 
 # Keep the original function for backward compatibility
 def extract_size_breakdown_table(text):
@@ -1167,7 +1315,7 @@ def extract_size_breakdown_table(text):
     return extracted_rows
 
 # ----------------- Main Parsing Functions -----------------
-@st.cache_data
+
 def parse_wo_data(text):
     """Parse Work Order data using extraction functions with caching"""
     data = {}
@@ -1193,12 +1341,14 @@ def parse_wo_data(text):
     
     # New fields
     data['Product Code'] = extract_product_code(text)
-    data['Delivery Location'] = extract_delivery_location(text)
     data['Color Code'] = extract_color_code(text)
     data['Size ID'] = extract_size_id(text)
-    data['Delivery Date'] = extract_delivery_date(text)
     
-    # NEW FIELDS: Address and Customer
+    # NEW FIELDS: Delivery Date and Delivery Location
+    data['Delivery Date'] = extract_delivery_date(text)
+    data['Delivery Location'] = extract_delivery_location(text)
+    
+    # OTHER FIELDS: Address and Customer
     data['Address'] = extract_address(text)
     data['Customer'] = clean_customer_value(extract_customer(text))
 
@@ -1212,3 +1362,85 @@ def process_wo_file(wo_file):
         if wo_text:
             return parse_wo_data(wo_text)
     return None
+
+def process_wo_file(wo_file):
+    """Process WO file and extract all relevant data"""
+    try:
+        # Extract text from PDF
+        text = extract_text_from_pdf(wo_file)
+        if not text:
+            st.error("Could not extract text from WO file")
+            return None
+        
+        # Extract all relevant fields
+        wo_data = {
+            'po_number': extract_po_number(text),
+            'color_code': extract_color_code(text),
+            'factory_id': extract_factory_id(text),
+            'date_of_mfr': extract_date_of_mfr(text),
+            'vss_vsd': extract_vss_vsd(text),
+            'silhouette': extract_silhouette(text),
+            'product_code': extract_product_code(text),
+            'care_instruction': extract_care_instruction(text),
+            'season': clean_season_value(extract_season(text)),
+            'quantity': extract_quantity(text),
+            'delivery_date': extract_delivery_date(text),
+            'size_id': extract_size_id(text),
+            'delivery_location': extract_delivery_location(text),
+            'customer': clean_customer_value(extract_customer(text)),
+            'address': extract_address(text),
+            'garment_components': extract_garment_components(text)
+        }
+        
+        return wo_data
+    except Exception as e:
+        st.error(f"Error processing WO file: {str(e)}")
+        return None
+    
+
+def extract_and_sort_wo_sizes(wo_items):
+    """
+    Extracts and sorts sizes from WO items table.
+    Returns a list of dictionaries with size and quantity information.
+    """
+    if not wo_items:
+        return []
+    
+    # Aggregate quantities by size
+    size_quantities = {}
+    for item in wo_items:
+        size = (item.get('Size 1') or 
+               item.get('Size') or 
+               item.get('size') or '').strip()
+        
+        if not size:
+            continue
+            
+        quantity = 0
+        qty_str = (item.get('Quantity') or 
+                  item.get('quantity') or '')
+        
+        if qty_str:
+            try:
+                quantity = float(str(qty_str).replace(',', ''))
+            except (ValueError, TypeError):
+                quantity = 0
+        
+        if size in size_quantities:
+            size_quantities[size] += quantity
+        else:
+            size_quantities[size] = quantity
+    
+    # Convert to list of dictionaries
+    size_list = []
+    for size, quantity in size_quantities.items():
+        size_list.append({
+            'Size': size,
+            'Order Quantity': int(quantity) if quantity == int(quantity) else quantity
+        })
+    
+    # Sort by size
+    size_order = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4, 'XXL': 5}
+    size_list.sort(key=lambda x: size_order.get(x['Size'], 999))
+    
+    return size_list
